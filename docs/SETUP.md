@@ -12,8 +12,8 @@ This gets you from a fresh clone to your own first CV. It takes about ten minute
 ## Install
 
 ```sh
-git clone https://github.com/KSDNicholas/cv-system.git
-cd cv-system
+git clone https://github.com/KSDNicholas/cv-studio.git
+cd cv-studio
 python3 -m venv .venv
 .venv/bin/pip install playwright pypdf
 ```
@@ -61,7 +61,7 @@ I keep mine under version control anyway, because git diffs are the easiest way 
 3. Delete the "Your CV data" block at the bottom of `.gitignore`.
 4. Commit and push as usual.
 
-To pull framework updates later, add this repo as a second remote (`git remote add upstream https://github.com/KSDNicholas/cv-system.git`) and merge from it.
+To pull framework updates later, add this repo as a second remote (`git remote add upstream https://github.com/KSDNicholas/cv-studio.git`) and merge from it.
 
 ## The macOS app
 

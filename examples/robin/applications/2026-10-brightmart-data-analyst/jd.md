@@ -2,7 +2,7 @@
 
 Source: pasted in CV Studio, 2026-10-01.
 
-BrightMart is a fictional online grocery retailer used as an example in cv-system.
+BrightMart is a fictional online grocery retailer used as an example in cv-studio.
 
 Data Analyst Intern (6 months, from January 2027)
 

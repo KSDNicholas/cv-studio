@@ -1,4 +1,4 @@
-# cv-system
+# cv-studio
 
 A CV system that tailors your CV to each job description from your own experiences, with every bullet cited back to something you actually said.
 
@@ -44,8 +44,8 @@ The full design, with the reasoning behind each choice, is in [docs/ARCHITECTURE
 You need macOS or Linux, Python 3.11 or newer, Google Chrome, and [Claude Code](https://docs.claude.com/en/docs/claude-code) installed and logged in.
 
 ```sh
-git clone https://github.com/KSDNicholas/cv-system.git
-cd cv-system
+git clone https://github.com/KSDNicholas/cv-studio.git
+cd cv-studio
 python3 -m venv .venv && .venv/bin/pip install playwright pypdf
 .venv/bin/python tools/example.py load
 .venv/bin/python tools/ui.py
