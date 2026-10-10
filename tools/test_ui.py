@@ -213,5 +213,38 @@ class HostCheck(unittest.TestCase):
         self.assertEqual(self.get(f"evil.example:{self.port}"), 403)
 
 
+class Phase1Fixes(unittest.TestCase):
+    """Bugs found by the 2026-10-11 end-to-end audit."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def test_last_run_survives_a_restart(self):
+        job = ui.Job("2026-10-acme-analyst", "extract", "Acme")
+        job.add("Reading jd.md")
+        job.status, job.ended = "done", time.time()
+        with mock.patch.object(ui, "JOB_HISTORY", self.tmp):
+            ui.save_job(job)
+            with mock.patch.dict(ui.JOBS, {}, clear=True):
+                back = ui.last_job("2026-10-acme-analyst")
+                self.assertEqual((back.status, back.kind), ("done", "extract"))
+                self.assertEqual(back.view(0)["lines"][0]["text"], "Reading jd.md")
+                self.assertIs(ui.JOBS[back.id], back)   # its log loads through /api/jobs/<id>
+        ui.JOBS.pop(job.id, None)
+
+    def test_approve_refuses_what_the_render_would_refuse(self):
+        md = ("# Extraction\n\nstatus: draft\n\n## Selected experiences (ordered)\n\n"
+              "### Analyst, Acme (May 2026 - Aug 2026)\nsection: Experience\n"
+              "- Built a dashboard \u2014 used weekly. (source: experiences/x/index.md L3)\n")
+        self.assertTrue(any("dash" in p.lower() for p in ui.md_problems(md)))
+
+    def test_missing_goals_file_reads_as_empty(self):
+        import goalsfile as g
+        self.assertEqual(g.read(self.tmp), "")
+
+
 if __name__ == "__main__":
     unittest.main()

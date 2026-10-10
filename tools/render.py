@@ -174,6 +174,20 @@ def style_problems(entries, education, availability, skills, interests=""):
     return problems
 
 
+def md_problems(md: str, jd_text: str = "") -> list:
+    """Everything the final render would refuse in an extraction.md, so Approve can refuse it first."""
+    sections = split_sections(md)
+    entries = parse_entries(sections.get("Selected experiences (ordered)", []))
+    education = [clean(l[2:]) for l in sections.get("Education", []) if l.startswith("- ")]
+    availability = " ".join(clean(l[2:] if l.startswith("- ") else l) for l in sections.get("Availability", []) if l.strip())
+    skills = " ".join(clean(l) for l in sections.get("Suggested skills line", []) if l.strip())
+    interests = " ".join(clean(l) for l in sections.get("Interests", []) if l.strip())
+    problems = style_problems(entries, education, availability, skills, interests)
+    if "availability" in jd_text.lower() and not availability:
+        problems.append("JD asks for availability but extraction.md has no Availability section")
+    return problems
+
+
 def company_name(jd_lines):
     for line in jd_lines:
         m = re.match(r"-\s*company:\s*(.+)", line)

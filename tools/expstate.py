@@ -11,7 +11,7 @@ from collections import Counter
 from datetime import date
 from pathlib import Path
 
-from appstate import DATE_RE, ITEM_RE, MONTHS, SLUG_RE as APP_SLUG_RE, _one_line, _versioned, slugify
+from appstate import DATE_RE, ITEM_RE, MONTHS, answer_lines, SLUG_RE as APP_SLUG_RE, _one_line, _versioned, slugify
 
 ROOT = Path(__file__).resolve().parent.parent
 EXPS = ROOT / "experiences"
@@ -304,14 +304,14 @@ def write_round_answers(md: str, answers: dict, other: str = "", skipped: list =
     lines = md.splitlines()
     inserts = []
     for key, text in (answers or {}).items():
-        text = _one_line(text or "")
+        text = text if (text or "").strip() else ""
         if not text:
             continue
         idx = int(key)
         if idx < 0 or idx >= len(rnd["questions"]) or rnd["questions"][idx]["ticked"]:
             skipped.append(idx)
             continue
-        inserts.append((rnd["questions"][idx]["last"], [f"  answer: {text}"], 0))
+        inserts.append((rnd["questions"][idx]["last"], answer_lines(text), 0))
     other = _one_line(other or "")
     if other:
         inserts.append((rnd["last"], [f"- [ ] {UI_NOTE}", f"  answer: {other}"], 1))

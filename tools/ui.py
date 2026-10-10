@@ -13,6 +13,7 @@ import atexit
 import difflib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -32,7 +33,7 @@ import expstate as e
 import trackerfile as t
 import goalsfile as g
 import undo
-from render import short_name
+from render import md_problems, short_name
 
 ROOT = s.ROOT
 UI_DIR = Path(__file__).resolve().parent / "ui"
@@ -47,6 +48,7 @@ PORT = 8765
 EFFORT = "high"  # extractor effort. The Claude Code default (xhigh) took 8 min per run
 
 HISTORY = Path(__file__).resolve().parent / "ui-history.json"    # run durations per kind (gitignored)
+JOB_HISTORY = Path(__file__).resolve().parent / "ui-jobs"   # the last finished run per page, kept across restarts (gitignored)
 SETTINGS = Path(__file__).resolve().parent / "ui-settings.json"  # notification switches (gitignored)
 READERS = {"extract", "revise"}                               # read experiences/ and master-cv.md
 WRITERS = {"ask", "next", "finish", "curate", "refresh"}      # change them (line numbers the extractor cites)
@@ -167,6 +169,31 @@ class Job:
                 "typical": self.typical, "label": self.label, "now": time.time()}
 
 
+class SavedJob:
+    """A finished run read back from JOB_HISTORY after a restart, so Activity still shows what happened."""
+
+    def __init__(self, v):
+        self.v, self.log = v, v.get("lines", [])
+        self.id, self.slug, self.kind, self.status = v["id"], v["slug"], v["kind"], v["status"]
+        self.started, self.ended, self.label = v["started"], v.get("ended"), v.get("label", "")
+        self.result, self.error = v.get("result", {}), v.get("error")
+
+    def view(self, since=0):
+        return self.v | {"lines": self.log[since:], "next": len(self.log), "now": self.ended or self.started}
+
+
+def _job_file(slug) -> Path:
+    return JOB_HISTORY / (re.sub(r"[^a-z0-9-]+", "__", slug) + ".json")
+
+
+def save_job(job):
+    try:
+        JOB_HISTORY.mkdir(exist_ok=True)
+        _job_file(job.slug).write_text(json.dumps(job.view(0)))
+    except OSError:
+        pass  # history is a convenience: never fail a run over it
+
+
 def start_job(slug, kind, target, label=""):
     """slug is the lock key: an application slug, exp:<slug> or master."""
     with TABLE:
@@ -199,6 +226,7 @@ def start_job(slug, kind, target, label=""):
             took = job.ended - job.started
             if job.status == "done":
                 record_duration(kind, took)
+            save_job(job)
             announce(job, took)
 
     threading.Thread(target=run, daemon=True).start()
@@ -238,7 +266,14 @@ def last_job(slug):
         if slug in ACTIVE:
             return JOBS[ACTIVE[slug]]
     mine = [j for j in JOBS.values() if j.slug == slug]
-    return max(mine, key=lambda j: j.started) if mine else None
+    if mine:
+        return max(mine, key=lambda j: j.started)
+    try:  # nothing this session: the last run before a restart
+        job = SavedJob(json.loads(_job_file(slug).read_text()))
+    except (OSError, ValueError, KeyError):
+        return None
+    JOBS[job.id] = job   # so its full log loads like any other run
+    return job
 
 
 def spawn(job, argv, env=None, cwd=None):
@@ -818,6 +853,10 @@ def action(app: Path, verb: str, body):
         check_fresh(app, body)
         ext = app / "extraction.md"
         preview, fresh = s.preview_pdf(app), not s.preview_stale(app)
+        jd = app / "jd.md"
+        problems = md_problems(ext.read_text(), jd.read_text() if jd.exists() else "")
+        if problems:  # the final render would refuse this draft, so approving it would be a dead end
+            raise Refused(409, "this draft breaks the CV style rules, so it could not be rendered: " + "; ".join(problems[:3]))
         try:
             ext.write_text(s.approve(ext.read_text()))
         except ValueError as e:
@@ -1076,7 +1115,7 @@ def goals_action(verb, body):
                     if not p:
                         raise Refused(409, "that draft is gone (saved or discarded in another tab). Reload.")
                     if p["stale"]:
-                        raise Refused(409, "goals.md changed after this draft was made. Revise it, or edit by hand.")
+                        raise Refused(409, "goals.md changed after this draft was made. Revise it, or edit the current file instead.")
                     text = p["text"] if source == "ai" else body.get("text") or ""
                     r = g.save(text, today(), "AI draft" if source == "ai" else "AI draft, edited by hand",
                                p["notes"], p["changed"], body.get("mtime"))

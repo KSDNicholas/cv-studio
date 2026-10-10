@@ -21,6 +21,7 @@ const KIND = {
 const EXP_STATE = {
   stub: ["New", "jd"], interviewing: ["Interviewing", "running-static"], interviewed: ["To curate", "draft"],
   condensed: ["In CV", "rendered"], archived: ["Archived", "jd"], planned: ["Planned", "planned"],
+  updated: ["Update to curate", "draft"],   // in the master CV, but the notes changed since
 };
 const CHANGE_RE = /^Change requested in (UI|chat)$/;
 
@@ -131,7 +132,7 @@ async function backOnline() {
   $("#offline").hidden = true;
   toast("Reconnected to CV Studio", { type: "ok" });
   await loadList().catch(() => {});
-  if (current) openApp(current).catch(() => {});
+  if (current) reopen(current).catch(() => {});
 }
 
 /* ---------- toasts, dialogs, busy buttons ---------- */
@@ -162,6 +163,7 @@ function chooseBox(title, body, yes, alt = null) {
   $("#confirm-alt").hidden = !alt;
   d.returnValue = "";
   d.showModal();
+  $("#confirm-yes").focus();   // Enter confirms. The form's first submit button is Cancel, so implicit submission would cancel
   return new Promise((resolve) => d.addEventListener("close", () => resolve(d.returnValue || "no"), { once: true }));
 }
 
@@ -268,12 +270,13 @@ function skeletonMain() {
 
 async function openApp(slug, opts = {}) {
   if (scope !== "apps") setScope("apps", false);
-  if (current !== slug) { stopPoll(); }
-  const switching = current !== slug;
+  if (current !== slug) { parkPoll(); }
+  const switching = current !== slug, prev = current;
   current = slug;
-  try { history.replaceState(null, "", `#${slug}`); } catch (e) { /* sandbox */ }
+  setHash(slug);
   const slow = switching ? setTimeout(() => main.replaceChildren(skeletonMain()), 150) : null;
   try { detail = await api(`/api/apps/${encodeURIComponent(slug)}`); }
+  catch (e) { return navFailed(prev, e); }
   finally { clearTimeout(slow); }
   if (current !== slug) return;
   if (opts.tab) tab[slug] = opts.tab;
@@ -444,7 +447,7 @@ function nextStep(job) {
     return q ? { label: `Answer ${q} question${q > 1 ? "s" : ""} →`, fn: () => goTab("interview") } : { label: "Finish the interview →", fn: () => goTab("interview") };
   }
   if (job.kind === "finish" || job.kind === "curate" || job.kind === "refresh") {
-    return job.result && job.result.review ? { label: "Review the change →", fn: () => goTab("changes") } : null;
+    return job.result && job.result.review && reviewPending ? { label: "Review the change →", fn: () => goTab("changes") } : null;   // not once it was kept or undone
   }
   if (job.kind === "goals") return job.result && job.result.review ? { label: "Review the draft →", fn: () => goTab("review") } : null;
   if (job.kind === "preview") return { label: "See preview →", fn: () => goTab("preview") };
@@ -523,6 +526,20 @@ function goTab(t) {
   main.scrollTo({ top: 0, behavior: "smooth" });
 }
 function rerenderCurrent() { if (current === "master") renderMaster(); else if (current === "goals") renderGoals(); else if (isExpKey(current)) renderExp(); else renderMain(); }
+/** Each page gets its own history entry, so the browser's Back button moves between pages instead of leaving. */
+function setHash(key) {
+  const h = key === "master" || key === "goals" ? key : isExpKey(key) ? `exp/${expSlug(key)}` : key || "";
+  try { if (decodeURIComponent(location.hash.slice(1)) !== h) history.pushState(null, "", h ? `#${h}` : location.pathname); } catch (e) { /* sandbox */ }
+}
+
+/** A page that could not load because the server is down: stay where you were and say why. */
+function navFailed(prev, e) {
+  if (!e.offline) throw e;
+  current = prev;
+  setHash(prev);
+  toast("CV Studio isn't running, so that page can't open yet. It reconnects by itself when the server is back.", { type: "error", sticky: false });
+}
+
 function reopen(key) { if (key === "master") return openMaster(); if (key === "goals") return openGoals(); if (isExpKey(key)) return openExp(expSlug(key)); return openApp(key); }
 
 /* ---------- views ---------- */
@@ -842,7 +859,7 @@ async function submitAnswers(btn) {
   try {
     const r = await busy(btn, "Applying…", () => api(`/api/apps/${encodeURIComponent(slug)}/answers`, { mtime: detail.extraction.mtime, answers, other }));
     for (const ta of boxes) { store.set(draftKey(slug, ta.dataset.key), ""); ta.value = ""; }   // the stale-answer fix
-    if (r.skipped && r.skipped.length) toast(`${r.skipped.length} answer${r.skipped.length > 1 ? " was" : " was"} skipped: that question was already answered.`);
+    if (r.skipped && r.skipped.length) toast(r.skipped.length > 1 ? `${r.skipped.length} answers were skipped: those questions were already answered.` : "1 answer was skipped: that question was already answered.");
     store.set(`cvs-running:${slug}`, JSON.stringify({ id: r.job, kind: "revise" }));
     await openApp(slug);
     startPoll(r.job, slug);
@@ -886,6 +903,8 @@ async function stopJob(v, btn) {
   const ok = await confirmBox(`Stop ${k.title.toLowerCase()}?`,
     v.kind === "revise" ? "The draft goes back to exactly how it was before this run. Your answers are kept, so you can apply them again." :
     v.kind === "goals" ? "The draft is thrown away. goals.md was never touched, so there is nothing to roll back." :
+    ["ask", "next"].includes(v.kind) ? "Your notes and the interview record go back to how they were before this run. Your typed answers are kept." :
+    ["finish", "curate", "refresh"].includes(v.kind) ? "Your master CV and notes go back to how they were before this run. Nothing from it is kept." :
     "The half-written draft is removed. Your job description is kept, so you can run it again.", "Stop");
   if (!ok) return;
   try { await busy(btn, "Stopping…", () => api(`/api/jobs/${v.id}/stop`, {})); } catch (e) { /* toast shown */ }
@@ -895,8 +914,31 @@ async function stopJob(v, btn) {
 
 function stopPoll() { if (poll) clearTimeout(poll.timer); poll = null; }
 
+/** Leaving a page while its run goes on: keep watching that run in the background, so its finish still shows. */
+const parked = new Map();   // job id -> slug
+function parkPoll() {
+  if (poll) parked.set(poll.jobId, poll.slug);
+  stopPoll();
+  if (parked.size && !parkPoll.timer) parkPoll.timer = setTimeout(watchParked, 2500);
+}
+
+async function watchParked() {
+  parkPoll.timer = null;
+  for (const [id, slug] of [...parked]) {
+    if (poll && poll.jobId === id) { parked.delete(id); continue; }   // its page is open again
+    let v;
+    try { v = await api(`/api/jobs/${id}?since=1000000`); }
+    catch (e) { if (e.status === 404) parked.delete(id); continue; }
+    if (v.status === "running") continue;
+    parked.delete(id);
+    await jobEnded(slug, v);
+  }
+  if (parked.size && !parkPoll.timer) parkPoll.timer = setTimeout(watchParked, 2500);
+}
+
 function startPoll(jobId, slug) {
   stopPoll();
+  parked.delete(jobId);
   poll = { jobId, slug, since: 0, lines: [], view: null, timer: null };
   tick();
 }
@@ -923,6 +965,12 @@ async function tick() {
     return;
   }
   stopPoll();
+  await jobEnded(p.slug, v);
+}
+
+/** A run ended, seen by its page or by the background watcher: badges, the tab title, a toast or the result card. */
+async function jobEnded(slug, v) {
+  const p = { slug };
   store.set(`cvs-running:${p.slug}`, "");
   const k = KIND[v.kind] || { done: "Done", title: v.kind };
   const b = badges[p.slug] || (badges[p.slug] = new Set());
@@ -946,6 +994,8 @@ async function tick() {
     if (card) { card.focus({ preventScroll: true }); card.scrollIntoView({ behavior: "smooth", block: "nearest" }); }
   } else if (v.status === "done") {
     toast(`${k.done} · ${v.label || v.slug}`, { type: "ok", action: { label: "View", fn: () => reopen(p.slug) } });
+  } else if (v.status === "failed") {
+    toast(`${k.title} failed · ${v.label || v.slug}`, { type: "error", action: { label: "View", fn: () => reopen(p.slug) } });
   }
 }
 
@@ -959,6 +1009,7 @@ function setupNew() {
     form.reset(); msg.replaceChildren(); confirmSimilar = false; submit.textContent = "Create and extract"; d.showModal();
   });
   $("#new-cancel").addEventListener("click", () => d.close());
+  form.addEventListener("input", () => { if (confirmSimilar) { confirmSimilar = false; submit.textContent = "Create and extract"; msg.replaceChildren(); } });
   form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const body = Object.fromEntries(new FormData(form));
@@ -1089,7 +1140,7 @@ function expMatches(x, f) {
   if (f === "progress") return x.phase === "ongoing" && st !== "planned";
   if (f === "planned") return st === "planned" || x.phase === "planned";
   if (f === "archived") return st === "archived";
-  if (f === "notyet") return ["stub", "interviewing", "interviewed"].includes(st);
+  if (f === "notyet") return ["stub", "interviewing", "interviewed", "updated"].includes(st);
   return true;
 }
 
@@ -1123,6 +1174,7 @@ function fillSelect(sel, options, value) {
 
 /** Status shows a count per option. Type and Year list only what the experiences have. A stored choice that no longer exists resets to any. */
 function renderExpTools() {
+  if (!exps.length) return;   // before the list loads there are no options yet, and a stored choice would be lost
   const n = (f) => exps.filter((x) => expPicked(x) && expMatches(x, f)).length;
   expPick.status = fillSelect($("#xf-status"), EXP_STATUS.map(([v, label]) => [v, v ? `${label} (${n(v)})` : `${label} (${n("")})`]), expPick.status);
   const types = [...new Set(exps.map((x) => x.type).filter(Boolean))].sort((a, b) => Object.keys(EXP_TYPES).indexOf(a) - Object.keys(EXP_TYPES).indexOf(b));
@@ -1158,6 +1210,7 @@ function expState(x) {
   if (x.interviewing) return "interviewing";
   if (x.phase === "planned" && (x.archived || x.status === "condensed")) return "planned";
   if (x.archived) return "archived";
+  if (x.status === "interviewed" && x.in_master) return "updated";
   return x.status in EXP_STATE ? x.status : "stub";
 }
 
@@ -1191,7 +1244,7 @@ function renderExpList() {
                   ["Hackathons and competitions", (x) => (x.section || "").startsWith("Hackathons")],
                   ["Leadership & activities", (x) => (x.section || "").startsWith("Leadership")],
                   ["Education and other", () => true]];
-  if (!expPick.status) groups.unshift(["Needs you", (x) => ["stub", "interviewing", "interviewed"].includes(expState(x))]);
+  if (!expPick.status) groups.unshift(["Needs you", (x) => ["stub", "interviewing", "interviewed", "updated"].includes(expState(x))]);
   const placed = new Set();
   const item = (x, child) => el("button", { class: `app-item${child ? " exp-child" : ""}`, type: "button", "aria-current": String(current === `exp:${x.slug}`), onclick: () => openExp(x.slug) },
     el("div", { class: "name" }, el("span", { text: x.title }), expPill(x, active[`exp:${x.slug}`])),
@@ -1252,12 +1305,13 @@ async function openExp(slug, opts = {}) {
   if (scope !== "exps") setScope("exps", false);
   const key = `exp:${slug}`;
   const switching = current !== key;
-  if (switching) stopPoll();
+  if (switching) parkPoll();
+  const prev = current;
   current = key;
-  try { history.replaceState(null, "", `#exp/${slug}`); } catch (e) { /* sandbox */ }
+  setHash(key);
   const slow = switching ? setTimeout(() => main.replaceChildren(skeletonMain()), 150) : null;
   try { expDetail = await api(`/api/exp/${encodeURIComponent(slug)}`); }
-  catch (e) { clearTimeout(slow); if (e.status === 404) { toast("That experience no longer exists.", { type: "error" }); return openMaster(); } throw e; }
+  catch (e) { clearTimeout(slow); if (e.offline) return navFailed(prev, e); if (e.status === 404) { toast("That experience no longer exists.", { type: "error" }); return openMaster(); } throw e; }
   clearTimeout(slow);
   if (current !== key) return;
   if (opts.tab) tab[key] = opts.tab;
@@ -1281,7 +1335,9 @@ function renderExp({ fade = false } = {}) {
   const t = tab[key] || expDefaultTab(d);
   tab[key] = t;
   (badges[key] || new Set()).delete(t);
-  const state = d.interview.open ? "interviewing" : (d.master_entry && d.master_entry.archived ? "archived" : f.status || "stub");
+  const listed = exps.find((x) => x.slug === d.slug) || {};   // the date phase comes from the list
+  const state = expState({ ...listed, interviewing: d.interview.open, status: f.status || "stub",
+                           in_master: !!d.master_entry, archived: !!(d.master_entry && d.master_entry.archived) });
   const [label, cls] = EXP_STATE[state] || EXP_STATE.stub;
   const actions = [];
   if (!d.interview.open && !running) {
@@ -1297,7 +1353,7 @@ function renderExp({ fade = false } = {}) {
         running ? el("span", { class: "pill running" }, el("span", { class: "dot" }), "Working") : el("span", { class: `pill ${cls}` }, label),
         el("code", { text: d.slug }))),
     el("div", { class: "actions" }, ...actions));
-  const at = d.review ? 3 : state === "condensed" || state === "archived" ? 4 : state === "interviewed" ? 2 : 1;
+  const at = d.review ? 3 : d.interview.open ? 1 : f.status === "condensed" ? 4 : f.status === "interviewed" ? 2 : 1;   // the loop step, whatever the label says
   const flow = el("ol", { class: "flow", "aria-label": "Progress" },
     ...["Notes", "Interview", "Curate", "Review"].map((s, i) => el("li", { class: i < at ? "done" : i === at ? "now" : "", "aria-current": i === at ? "step" : null },
       el("span", { class: "flow-dot" }, i < at ? svg(ICON.check, "flow-check") : null), el("span", { text: s }))));
@@ -1505,7 +1561,7 @@ async function submitRound(verb, btn) {
     const r = await busy(btn, verb === "next" ? "Sending…" : "Finishing…",
       () => api(`/api/exp/${encodeURIComponent(expSlug(key))}/${verb}`, { mtime: expDetail.interview.mtime, answers, other }));
     for (const ta of boxes) { store.set(draftKey(key, ta.dataset.key), ""); ta.value = ""; }
-    if (r.skipped && r.skipped.length) toast(`${r.skipped.length} answer was skipped: that question was already answered.`);
+    if (r.skipped && r.skipped.length) toast(r.skipped.length > 1 ? `${r.skipped.length} answers were skipped: those questions were already answered.` : "1 answer was skipped: that question was already answered.");
     store.set(`cvs-running:${key}`, JSON.stringify({ id: r.job, kind: verb }));
     await openExp(expSlug(key));
     startPoll(r.job, key);
@@ -1687,11 +1743,12 @@ async function masterAction(verb, btn = null) {
 async function openMaster(opts = {}) {
   if (scope !== "master") setScope("master", false);
   const switching = current !== "master";
-  if (switching) stopPoll();
+  if (switching) parkPoll();
+  const prev = current;
   current = "master";
-  try { history.replaceState(null, "", "#master"); } catch (e) { /* sandbox */ }
+  setHash("master");
   const slow = switching ? setTimeout(() => main.replaceChildren(skeletonMain()), 150) : null;
-  try { masterData = await api("/api/master"); } finally { clearTimeout(slow); }
+  try { masterData = await api("/api/master"); } catch (e) { return navFailed(prev, e); } finally { clearTimeout(slow); }
   if (current !== "master") return;
   if (opts.tab) tab.master = opts.tab;
   renderList();
@@ -1727,7 +1784,7 @@ function renderMaster({ fade = false } = {}) {
     changes: () => viewChanges(m.review),
   }[t]();
   const stale = m.goals && m.goals.needs_refresh && !m.review && !running
-    ? el("div", { class: "banner warn", role: "status" }, el("div", { class: "grow", text: `Your goals changed on ${m.goals.last_updated} and the ranking hasn't been refreshed.` }),
+    ? el("div", { class: "banner warn", role: "status" }, el("div", { class: "grow", text: `Your goals changed ${m.goals.last_updated ? `on ${m.goals.last_updated}` : "recently"} and the ranking hasn't been refreshed.` }),
         el("button", { class: "btn primary", onclick: (e) => masterAction("refresh", e.currentTarget) }, "Refresh ranking"))
     : null;
   main.replaceChildren(el("div", { class: `main-inner${fade ? " enter" : ""}` }, head, stale, runOrResult(m), seg, body));
@@ -1750,11 +1807,12 @@ function dismissGoalsResult() {  // its "Review the draft" button is moot once t
 async function openGoals(opts = {}) {
   if (scope !== "goals") setScope("goals", false);
   const switching = current !== "goals";
-  if (switching) stopPoll();
+  if (switching) parkPoll();
+  const prev = current;
   current = "goals";
-  try { history.replaceState(null, "", "#goals"); } catch (e) { /* sandbox */ }
+  setHash("goals");
   const slow = switching ? setTimeout(() => main.replaceChildren(skeletonMain()), 150) : null;
-  try { goalsData = await api("/api/goals"); } finally { clearTimeout(slow); }
+  try { goalsData = await api("/api/goals"); } catch (e) { return navFailed(prev, e); } finally { clearTimeout(slow); }
   if (current !== "goals") return;
   if (opts.tab) tab.goals = opts.tab;
   renderList();
@@ -1816,13 +1874,19 @@ function goalsMain() {
       el("div", { class: "row-actions" }, refreshButton(), el("button", { class: "text-btn", onclick: () => { goalsSaved = null; renderGoals(); } }, "Not now"))));
   } else if (d.needs_refresh) {
     out.push(el("div", { class: "card next" }, el("h3", { text: "Your ranking is older than your goals" }),
-      el("p", { class: "muted", text: `Your goals changed on ${d.last_updated}. Refresh the ranking so the curator re-orders your master CV against them. About 2 minutes, and you review the change.` }),
+      el("p", { class: "muted", text: `Your goals changed ${d.last_updated ? `on ${d.last_updated}` : "recently"}. Refresh the ranking so the curator re-orders your master CV against them. About 2 minutes, and you review the change.` }),
       refreshButton()));
   }
   if (d.unfinished && d.unfinished.length) {
     out.push(el("div", { class: "banner warn" }, el("div", { class: "grow", text: `Your note is saved but the draft did not finish: “${d.unfinished.at(-1).text}”` }),
       el("button", { class: "text-btn", onclick: (e) => goalsPost("discard", {}, e.currentTarget, "Discarding…") }, "Discard"),
       el("button", { class: "btn primary", onclick: (e) => goalsPost("draft", { retry: true }, e.currentTarget, "Starting…") }, "Retry")));
+  }
+  if (!(d.raw || "").trim()) {  // a missing or empty goals.md: say what to write instead of showing a blank card
+    out.push(el("div", { class: "card next" }, el("h3", { text: "Your goals are empty" }),
+      el("p", { class: "muted", text: "Write a few honest lines: the roles you're aiming for in order, what to lead with and what to play down. The curator ranks your master CV by this file." }),
+      el("div", { class: "row-actions" }, el("button", { class: "btn primary", onclick: () => startGoalsEdit("manual") }, "Write my goals"))));
+    return el("div", {}, ...out);
   }
   out.push(docCard("goals.md", d.raw, true));
   return el("div", {}, ...out);
@@ -1956,10 +2020,11 @@ function goalsAiReview() {
       el("p", { class: "muted", text: `Drafted ${when} from your note. Nothing is saved until you accept it.` })),
       el("div", { class: "row-actions" },
         el("button", { class: "text-btn danger", disabled: running, onclick: (e) => discardGoalsDraft(e.currentTarget) }, "Discard"),
-        el("button", { class: "btn", disabled: running, onclick: () => startGoalsEdit("ai-edited", p.text) }, "Edit by hand"),
+        // a stale draft was made from an older goals.md: editing it by hand would undo the newer file, so start from the file
+        el("button", { class: "btn", disabled: running, onclick: () => (p.stale ? startGoalsEdit("manual", goalsData.raw) : startGoalsEdit("ai-edited", p.text)) }, p.stale ? "Edit the current file" : "Edit by hand"),
         el("button", { class: "btn", disabled: running, onclick: () => openGoalsDialog("revise") }, "Revise"),
         el("button", { class: "btn primary", disabled: running || p.stale, title: p.stale ? "goals.md changed after this draft was made" : "", onclick: (e) => saveGoals(e.currentTarget, "ai", "") }, "Accept and save"))),
-    p.stale ? el("div", { class: "banner warn", role: "status" }, el("div", { class: "grow", text: "goals.md changed after this draft was made, so Accept is off. Revise drafts again from the current file, or Edit by hand." })) : null,
+    p.stale ? el("div", { class: "banner warn", role: "status" }, el("div", { class: "grow", text: "goals.md changed after this draft was made, so Accept is off. Revise drafts again from the current file. Or edit the current file yourself, and copy from this draft as you go." })) : null,
     p.new_terms && p.new_terms.length ? el("div", { class: "banner warn", role: "status" }, el("div", { class: "grow" },
       el("strong", { text: "Names or numbers that are in neither your goals nor your note: " }), el("span", { class: "terms" }, ...p.new_terms.map((x) => el("span", { class: "chip warn", text: x }))),
       el("div", { class: "hint", text: "Check they are yours before saving. This check is cautious, so a reworded sentence can trip it." }))) : null,

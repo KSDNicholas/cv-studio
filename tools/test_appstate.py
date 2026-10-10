@@ -218,5 +218,18 @@ class NewApps(unittest.TestCase):
             self.assertTrue(s.preview_stale(app))
 
 
+class MultiLineAnswers(unittest.TestCase):
+    def test_line_breaks_become_separate_answer_lines(self):
+        md = f"status: draft\n\n{s.QUESTIONS}\n\n- [ ] Keep it?\n"
+        out = s.write_answers(md, {0: "Yes.\n\nBut shorten it."})
+        self.assertIn("  answer: Yes.\n  answer: But shorten it.", out)
+        self.assertEqual(s.parse_questions(out)[0]["answers"], ["Yes.", "But shorten it."])
+
+    def test_blank_answer_is_skipped(self):
+        md = f"status: draft\n\n{s.QUESTIONS}\n\n- [ ] Keep it?\n"
+        with self.assertRaisesRegex(ValueError, "no answers given"):
+            s.write_answers(md, {0: "   \n "})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -148,6 +148,12 @@ def _one_line(text: str) -> str:
     return " ".join(text.split())
 
 
+def answer_lines(text: str) -> list:
+    """The user's answer as `  answer:` lines, one per paragraph, so the breaks they meant survive.
+    A single line break inside a sentence still joins (a textarea wraps, people paste)."""
+    return [f"  answer: {_one_line(p)}" for p in re.split(r"\n\s*\n", str(text)) if p.strip()]
+
+
 def write_answers(md: str, answers: dict, other: str = "", skipped: list = None) -> str:
     """Insert `  answer: <text>` under each answered unticked question, verbatim except that line
     breaks become spaces. A free-form request becomes `- [ ] Change requested in UI` at the section end.
@@ -160,14 +166,14 @@ def write_answers(md: str, answers: dict, other: str = "", skipped: list = None)
     questions = parse_questions(md)
     inserts = []  # (after_line_index, new_lines)
     for key, text in answers.items():
-        text = _one_line(text or "")
+        text = text if (text or "").strip() else ""
         if not text:
             continue
         idx = int(key)
         if idx < 0 or idx >= len(questions) or questions[idx]["ticked"]:
             skipped.append(idx)
             continue
-        inserts.append((questions[idx]["last"], [f"  answer: {text}"], 0))
+        inserts.append((questions[idx]["last"], answer_lines(text), 0))
     other = _one_line(other or "")
     if other:
         last = bounds[1] - 1

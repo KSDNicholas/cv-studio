@@ -32,7 +32,8 @@ class Conflict(Exception):
 # ---------- goals.md ----------
 
 def read(root: Path = None) -> str:
-    return ((root or ROOT) / GOALS).read_text()
+    f = (root or ROOT) / GOALS
+    return f.read_text() if f.exists() else ""  # a missing goals.md must not take three tabs down with it
 
 
 def mtime(root: Path = None) -> str:
