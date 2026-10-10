@@ -403,8 +403,8 @@ def run_extractor(job, app: Path, revise: bool):
     old_mtime = mtime(app)
     prompt = f"Application folder: applications/{slug}/" + ("\nmode: revise" if revise else "")
     job.add(f"Starting the extractor{' in revise mode' if revise else ''} for applications/{slug}/ (effort: {EFFORT})")
-    message = run_claude(job, "extractor", prompt, [f"{app}/**"], extractor_stage)
-    if message is None:
+
+    def roll_back():  # a stopped, failed or timed-out run leaves no half-written draft behind
         ext = app / "extraction.md"
         if revise:
             ext.write_text(before)
@@ -413,6 +413,16 @@ def run_extractor(job, app: Path, revise: bool):
             if ext.exists():
                 ext.unlink()
             undone = "the half-written extraction.md was removed; the job description is kept"
+        job.result["rolled_back"] = undone
+        return undone
+
+    try:
+        message = run_claude(job, "extractor", prompt, [f"{app}/**"], extractor_stage)
+    except Exception:
+        roll_back()
+        raise
+    if message is None:
+        undone = roll_back()
         job.result = {"rolled_back": undone}
         job.add(f"Stopped. {undone[0].upper() + undone[1:]}.", "warn")
         raise Stopped()
@@ -483,12 +493,19 @@ def run_interviewer(job, exp: Path, mode: str):
     slug, idx, iv = exp.name, exp / "index.md", exp / "interview.md"
     before_idx, before_iv = idx.read_text(), iv.read_text()
     job.add(f"Starting the interviewer ({mode}) for experiences/{slug}/ (effort: {EFFORT})")
-    message = run_claude(job, "interviewer", f"Experience: experiences/{slug}/\nmode: {mode}",
-                         [idx, iv], interviewer_stage, extra_disallowed=("Write",))
+    undone = "your notes and the interview record were restored to how they were before this run"
+    try:
+        message = run_claude(job, "interviewer", f"Experience: experiences/{slug}/\nmode: {mode}",
+                             [idx, iv], interviewer_stage, extra_disallowed=("Write",))
+    except Exception:  # failed or timed out: undo partial edits, the same as Stop
+        idx.write_text(before_idx)
+        iv.write_text(before_iv)
+        job.result["rolled_back"] = undone
+        raise
     if message is None:
         idx.write_text(before_idx)
         iv.write_text(before_iv)
-        job.result = {"rolled_back": "your notes and the interview record were restored to how they were before this run"}
+        job.result = {"rolled_back": undone}
         job.add("Stopped. Notes and interview record restored.", "warn")
         raise Stopped()
     problems = e.index_guard(before_idx, idx.read_text())
@@ -532,6 +549,7 @@ def run_curator(job, mode: str, slugs, stage_base=0):
                              (lambda j, b: None if curator_stage(j, b) is None else stage_base + 1) if stage_base else curator_stage)
     except Exception:
         undo.restore_all()
+        job.result["rolled_back"] = "your master CV and notes were restored to how they were before this run"
         raise
     if message is None:
         undo.restore_all()
@@ -557,7 +575,8 @@ def run_curator(job, mode: str, slugs, stage_base=0):
     edits = [lambda x: t.set_last_updated(x, today(), f"CV Studio: curator {prompt}")]
     q = f.get("quantify?", "")
     if q and not q.startswith("0"):
-        edits.append(lambda x: t.add_waiting_item(x, entry, f"Curator marked bullets (quantify?): {q}. Give the numbers with Update in CV Studio"))
+        edits.append(lambda x: t.replace_waiting_item(x, entry, "Curator marked bullets (quantify?)",
+                                                      f"Curator marked bullets (quantify?): {q}. Give the numbers with Update in CV Studio"))
     tags = f.get("new tags", "")
     if tags and not tags.lower().startswith("none"):
         edits.append(lambda x: t.add_waiting_item(x, "(tag vocabulary)", f"Curator added {tags} via CV Studio, {today()}. Veto with Undo or by editing CLAUDE.md"))

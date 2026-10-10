@@ -45,13 +45,41 @@ def upsert_application(text: str, slug: str, status: str, closes: str) -> str:
     return "\n".join(lines)
 
 
+def _key(*cells) -> str:
+    """A row's identity for spotting repeats: no trailing "(who, date)" stamp, case, spacing or punctuation.
+    A curator or interviewer run that raises the same question on another day then matches the first row."""
+    def one(c):
+        c = re.sub(r"\s*\([^()]*\b\d{4}-\d{2}-\d{2}\)\s*\.?\s*$", "", _cell(c))
+        return re.sub(r"[^a-z0-9]+", " ", c.lower()).strip()
+    return " | ".join(one(c) for c in cells)
+
+
+def _has_row(lines, heading, *cells) -> bool:
+    start, end = _section(lines, heading)
+    want = _key(*cells)
+    for i in range(start, end):
+        if lines[i].startswith("|") and not lines[i].startswith("| ---"):
+            have = [c for c in lines[i].strip().strip("|").split("|")]
+            if _key(*have) == want:
+                return True
+    return False
+
+
 def add_waiting_item(text: str, entry: str, item: str) -> str:
     lines = text.split("\n")
-    row = f"| {_cell(entry)} | {_cell(item)} |"
-    if row in lines:
+    if _has_row(lines, "Waiting on you (no deadline)", entry, item):
         return text
-    _append_row(lines, "Waiting on you (no deadline)", row)
+    _append_row(lines, "Waiting on you (no deadline)", f"| {_cell(entry)} | {_cell(item)} |")
     return "\n".join(lines)
+
+
+def replace_waiting_item(text: str, entry: str, prefix: str, item: str) -> str:
+    """Drop the entry's rows that start with `prefix`, then add `item`. For counts that each run restates."""
+    lines = text.split("\n")
+    start, end = _section(lines, "Waiting on you (no deadline)")
+    head = f"| {_cell(entry)} | {_cell(prefix)}"
+    lines = [l for i, l in enumerate(lines) if not (start <= i < end and l.startswith(head))]
+    return add_waiting_item("\n".join(lines), entry, item)
 
 
 def merge_skill_gap(text: str, company: str, items, when: str) -> str:
@@ -88,10 +116,9 @@ def update(*edits, path: Path = TRACKER):
 
 def add_dated_item(text: str, when: str, entry: str, what: str) -> str:
     lines = text.split("\n")
-    row = f"| {_cell(when)} | {_cell(entry)} | {_cell(what)} |"
-    if row in lines:
+    if _has_row(lines, "Waiting on a date or event", when, entry, what):
         return text
-    _append_row(lines, "Waiting on a date or event", row)
+    _append_row(lines, "Waiting on a date or event", f"| {_cell(when)} | {_cell(entry)} | {_cell(what)} |")
     return "\n".join(lines)
 
 

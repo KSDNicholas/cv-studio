@@ -499,7 +499,7 @@ function resultCard(job) {
   } else {
     icon = svg(ICON.cross, "res-icon bad");
     title = `${k.title} failed`;
-    sub = friendlyError(job.error);
+    sub = friendlyError(job.error) + (job.result && job.result.rolled_back ? ` Rolled back: ${job.result.rolled_back}.` : "");
     const r = retry(job.kind); if (r) actions.push(el("button", { class: "btn primary", type: "button", onclick: r }, "Retry"));
     actions.push(el("button", { class: "text-btn", type: "button", onclick: () => goTab("log") }, "Show details"));
   }

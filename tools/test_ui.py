@@ -126,6 +126,62 @@ class GoalsDrafter(unittest.TestCase):
         ui.JOBS.pop(job.id, None)
 
 
+class FailedRunRollsBack(unittest.TestCase):
+    """A failed or timed-out agent run undoes its partial edits, the same as Stop."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    @staticmethod
+    def failing(write):
+        def fake(job, agent, prompt, fences, *a, **k):
+            write()
+            raise RuntimeError(f"the {agent} exited (1) without a result")
+        return fake
+
+    def test_extractor_revise_restores_the_draft(self):
+        app = self.tmp / "2026-10-acme-analyst"
+        app.mkdir()
+        (app / "extraction.md").write_text("draft before\n")
+        job = ui.Job(app.name, "revise")
+        with mock.patch.object(ui, "run_claude", self.failing(lambda: (app / "extraction.md").write_text("half"))):
+            with self.assertRaises(RuntimeError):
+                ui.run_extractor(job, app, revise=True)
+        self.assertEqual((app / "extraction.md").read_text(), "draft before\n")
+        self.assertIn("restored", job.result["rolled_back"])
+
+    def test_extractor_first_run_removes_the_partial_draft(self):
+        app = self.tmp / "2026-10-acme-analyst"
+        app.mkdir()
+        (app / "jd.md").write_text("jd\n")
+        job = ui.Job(app.name, "extract")
+        with mock.patch.object(ui, "run_claude", self.failing(lambda: (app / "extraction.md").write_text("half"))):
+            with self.assertRaises(RuntimeError):
+                ui.run_extractor(job, app, revise=False)
+        self.assertFalse((app / "extraction.md").exists())
+        self.assertEqual((app / "jd.md").read_text(), "jd\n")
+
+    def test_interviewer_restores_notes_and_record(self):
+        exp = self.tmp / "acme-intern"
+        exp.mkdir()
+        (exp / "index.md").write_text("notes before\n")
+        (exp / "interview.md").write_text("record before\n")
+        job = ui.Job("exp:acme-intern", "next")
+
+        def half():
+            (exp / "index.md").write_text("half notes")
+            (exp / "interview.md").write_text("half record")
+        with mock.patch.object(ui, "run_claude", self.failing(half)):
+            with self.assertRaises(RuntimeError):
+                ui.run_interviewer(job, exp, "next")
+        self.assertEqual((exp / "index.md").read_text(), "notes before\n")
+        self.assertEqual((exp / "interview.md").read_text(), "record before\n")
+        self.assertIn("restored", job.result["rolled_back"])
+
+
 class HostCheck(unittest.TestCase):
     """GETs must name this server too, or a DNS rebinding page could read CV data."""
 

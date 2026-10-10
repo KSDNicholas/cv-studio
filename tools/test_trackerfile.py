@@ -58,6 +58,25 @@ class Tracker(unittest.TestCase):
         self.assertIn("| 2026-10-acme-analyst | Decide on dates |", out)
         self.assertEqual(t.add_waiting_item(out, "2026-10-acme-analyst", "Decide on dates"), out)
 
+    def test_same_question_on_another_day_is_not_added_again(self):
+        out = t.add_waiting_item(self.text, "(master CV)", "Should the exchange list drop CSCI 3002? (curator via CV Studio, 2026-10-08)")
+        again = t.add_waiting_item(out, "(master CV)", "Should the exchange list drop CSCI 3002?  (curator via CV Studio, 2026-10-11)")
+        self.assertEqual(again, out)
+        other = t.add_waiting_item(out, "(master CV)", "Should the exchange list drop APPM 4120? (curator via CV Studio, 2026-10-11)")
+        self.assertEqual(other.count("| (master CV) |"), 2)
+
+    def test_dated_item_on_another_day_is_not_added_again(self):
+        out = t.add_dated_item(self.text, "After 12 Nov 2026", "binance-agentic-ai-challenge", "Add result (curator via CV Studio, 2026-10-11)")
+        self.assertEqual(out.count("| binance-agentic-ai-challenge |"), 1)
+
+    def test_quantify_count_is_replaced_not_stacked(self):
+        prefix = "Curator marked bullets (quantify?)"
+        out = t.replace_waiting_item(self.text, "(master CV)", prefix, f"{prefix}: 1 bullet needs a number (x). Give the numbers")
+        out = t.replace_waiting_item(out, "(master CV)", prefix, f"{prefix}: 1 bullet needs numbers (x). Give the numbers")
+        self.assertEqual(out.count(prefix), 1)
+        self.assertIn("1 bullet needs numbers", out)
+        self.assertIn("| (LinkedIn) | Change the post count |", out)
+
     def test_skill_gaps(self):
         out = t.merge_skill_gap(self.text, "BrightMart", ["dbt", "Kafka streams"], "2026-10-07")
         self.assertIn("Also (2026-10-07): Kafka streams.", out)
