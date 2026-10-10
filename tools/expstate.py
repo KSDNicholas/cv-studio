@@ -11,7 +11,7 @@ from collections import Counter
 from datetime import date
 from pathlib import Path
 
-from appstate import ITEM_RE, SLUG_RE as APP_SLUG_RE, _one_line, _versioned, slugify
+from appstate import DATE_RE, ITEM_RE, MONTHS, SLUG_RE as APP_SLUG_RE, _one_line, _versioned, slugify
 
 ROOT = Path(__file__).resolve().parent.parent
 EXPS = ROOT / "experiences"
@@ -89,6 +89,43 @@ def set_status(md: str, new: str) -> str:
     return f"---\n{block}\n---\n" + md[m.end():]
 
 
+AY_RE = re.compile(r"\bAY\s?(\d{2})/(\d{2})\b")
+PLANNED_RE = re.compile(r"(?i)\bplanned\b")
+
+
+def timeline(text: str, today: date = None) -> dict:
+    """Where an experience sits in time, for the Experiences filter: phase is "ended", "ongoing", "planned" or
+    "undated", with its first and last month as "yyyy-mm" ("present" for an open end). "Present" or an end still
+    ahead is ongoing. "Planned" or a start still ahead is planned. AY24/25 reads as Aug 2024 to May 2025."""
+    today = today or date.today()
+    text = re.sub(r"\b\d{4}-\d{2}-\d{2}\b", "", text or "")  # the date on a note like "(Robin, 2026-10-06: ...)"
+    text = AY_RE.sub(lambda m: f"Aug 20{m.group(1)} - May 20{m.group(2)}", text)
+    found, present = [], False
+    for m in DATE_RE.finditer(text):
+        if m.group("present"):
+            present = True
+            continue
+        mon = MONTHS.get((m.group("mon") or "").lower())
+        found.append((int(m.group("year")), mon))
+    if not found:
+        phase = "planned" if PLANNED_RE.search(text) else "ongoing" if present else "undated"
+        return {"phase": phase, "start": None, "end": "present" if present else None}
+    start = min((y, mon or 1) for y, mon in found)
+    end = max((y, mon or 12) for y, mon in found)
+    now = (today.year, today.month)
+    if PLANNED_RE.search(text) or start > now:
+        phase = "planned"
+    elif present or end >= now:
+        phase = "ongoing"
+    else:
+        phase = "ended"
+    return {"phase": phase, "start": "%d-%02d" % start, "end": "present" if present else "%d-%02d" % end}
+
+
+def _has_date(text: str) -> bool:
+    return bool(DATE_RE.search(text or "") or AY_RE.search(text or "") or PLANNED_RE.search(text or ""))
+
+
 def list_experiences(exps: Path = EXPS, master_md: str = None):
     master_md = master_md if master_md is not None else (MASTER.read_text() if MASTER.exists() else "")
     out = []
@@ -97,11 +134,14 @@ def list_experiences(exps: Path = EXPS, master_md: str = None):
         fm = front_matter(idx.read_text()) if idx.exists() else {}
         iv = (d / "interview.md").read_text() if (d / "interview.md").exists() else ""
         entry = master_entry(master_md, d.name)
-        out.append({"slug": d.name, "title": fm.get("title", d.name), "organisation": fm.get("organisation", ""),
+        dates = fm.get("dates", "")  # a TODO in the notes falls back to the dates in the master CV heading
+        when = timeline(dates if _has_date(dates) or not entry else entry["heading"])
+        part_of = entry["owner"] if entry and entry["owner"] != d.name and entry["section"] != "Skills" else None
+        out.append({"slug": d.name, "part_of": part_of, "title": fm.get("title", d.name), "organisation": fm.get("organisation", ""),
                     "dates": fm.get("dates", ""), "type": fm.get("type", ""), "status": fm.get("status", "stub"),
                     "interviewing": open_session_of(parse_interview(iv)) is not None,
                     "in_master": bool(entry), "archived": bool(entry and entry["archived"]),
-                    "section": entry["section"] if entry else None, "artifacts": len(list_artifacts(d))})
+                    "section": entry["section"] if entry else None, "artifacts": len(list_artifacts(d)), **when})
     return out
 
 
@@ -125,8 +165,10 @@ def master_entry(master_md: str, slug: str):
         if f"experiences/{slug}/index.md" in retrieve:
             tags_line = next((l for l in b["lines"] if l.startswith("tags:")), "")
             tags = [t.strip() for t in tags_line[5:].strip().strip("[]").split(",") if t.strip()]
+            first = re.search(r"experiences/([a-z0-9-]+)/index\.md", retrieve)  # the entry's own experience
             return {"heading": b["heading"], "section": b["section"], "archived": b["section"] == "Archive",
-                    "bullets": [l[2:] for l in b["lines"] if l.startswith("- ")], "tags": tags}
+                    "bullets": [l[2:] for l in b["lines"] if l.startswith("- ")], "tags": tags,
+                    "owner": first.group(1) if first else slug}
     return None
 
 

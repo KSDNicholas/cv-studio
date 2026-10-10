@@ -7,7 +7,7 @@ There are two ways to do everything here. CV Studio is the web app, and it is wh
 CV Studio has four tabs along the top of the sidebar:
 
 - **Apps**: your job applications, from pasted job description to final PDF.
-- **Experiences**: everything that could go on a CV, with a filter for what's done and what's still in progress.
+- **Experiences**: everything that could go on a CV, each labelled with where it stands.
 - **Master CV**: the condensed menu every application picks from.
 - **Goals**: where you're heading, which decides what gets ranked first.
 
@@ -21,9 +21,13 @@ In CV Studio, open the **Experiences** tab and click **New experience**. Give it
 
 Then the interviewer asks you 3 to 5 questions at a time. Answer in your own words, as if you were telling a friend. Rough is fine. Say "I" for what you did and "we" for what the team did, because the agents keep that distinction all the way to the CV. After each round you can click **Next round** for follow-ups or **Finish**.
 
-![Robin's bakery dashboard project mid-interview, with the Pending filter on](img/pending.png)
+![Robin's bakery dashboard project mid-interview, at the top of the list under Needs you](img/pending.png)
 
-The filter above the list has three settings. **In CV** shows experiences already condensed into your master CV. **Pending** shows everything where the loop isn't closed yet: new, being interviewed, or waiting for the curator. **All** shows both, plus anything archived. I check Pending every week or so. It's the list of things I started telling the system about and never finished.
+Each experience in the list carries a label. **In CV** means it's in your master CV. **Planned** means it hasn't started yet. **Archived** means it was dropped from the CV. Anything still being interviewed or curated shows that step instead: New, Interviewing or To curate. A second line, **In Progress**, shows while the dates say you're still doing it, so a current job can be In CV and In Progress at once.
+
+Anything waiting on you sits at the top under Needs you. I check it every week or so. It's the list of things I started telling the system about and never finished.
+
+Four menus above the list narrow it down: Status, Type, Year and Sort. If a piece of work got folded into a bigger entry on the CV, like a client project inside a job, it sits indented under that entry.
 
 Once a round is answered, it stays in the record:
 

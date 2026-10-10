@@ -1,3 +1,4 @@
+import shutil
 import tempfile
 import unittest
 from datetime import date
@@ -123,6 +124,54 @@ class Guards(unittest.TestCase):
         a = "## Rules\nx\n## Tag vocabulary\n- a\n## Other\ny\n"
         self.assertTrue(e.outside_section_equal(a, a.replace("- a\n", "- a\n- b\n"), "Tag vocabulary"))
         self.assertFalse(e.outside_section_equal(a, a.replace("x\n", "z\n"), "Tag vocabulary"))
+
+
+class Timeline(unittest.TestCase):
+    """The Experiences filter: In CV is ended, Pending is ongoing or undated, Planned is not started."""
+    TODAY = date(2026, 10, 11)
+
+    def phase(self, text):
+        return e.timeline(text, self.TODAY)["phase"]
+
+    def test_phases(self):
+        self.assertEqual(self.phase("May 2026 – Aug 2026"), "ended")
+        self.assertEqual(self.phase("Sep 2026 - Present"), "ongoing")
+        self.assertEqual(self.phase("2024 – 2028"), "ongoing")       # an end still ahead
+        self.assertEqual(self.phase("Jan 2027 - May 2027"), "planned")  # a start still ahead
+        self.assertEqual(self.phase("Self-directed finance learning, Personal (Planned)"), "planned")
+        self.assertEqual(self.phase("TODO"), "undated")
+
+    def test_academic_years_and_note_dates(self):
+        t = e.timeline("AY24/25 (Member) – AY25/26 (Vice Head)", self.TODAY)
+        self.assertEqual((t["phase"], t["start"], t["end"]), ("ended", "2024-08", "2026-05"))
+        t = e.timeline("Sep 2026 – Present (Robin, 2026-10-06: ongoing until 12 Nov 2026)", self.TODAY)
+        self.assertEqual((t["phase"], t["start"], t["end"]), ("ongoing", "2026-09", "present"))
+
+    def test_todo_dates_fall_back_to_the_master_heading(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            d = tmp / "techjam"
+            d.mkdir()
+            (d / "index.md").write_text("---\nslug: techjam\ntitle: TechJam\ndates: TODO\nstatus: condensed\n---\n")
+            md = "## Projects\n\n### TechJam, Acme (Aug 2025)\n- Built it.\nretrieve: experiences/techjam/index.md\n"
+            x = e.list_experiences(tmp, md)[0]
+            self.assertEqual((x["start"], x["end"]), ("2025-08", "2025-08"))
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_merged_experience_names_its_parent(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            for slug in ("analyst", "client-poc"):
+                (tmp / slug).mkdir()
+                (tmp / slug / "index.md").write_text(f"---\nslug: {slug}\ntitle: {slug}\ndates: Sep 2026 - Present\nstatus: condensed\n---\n")
+            md = ("## Experience\n\n### Analyst, Acme (Sep 2026 - Present)\n- Built it.\n"
+                  "retrieve: experiences/analyst/index.md; experiences/client-poc/index.md\n\n"
+                  "## Skills\n\n### Technical skills\n- Python\nretrieve: experiences/analyst/index.md\n")
+            got = {x["slug"]: x["part_of"] for x in e.list_experiences(tmp, md)}
+            self.assertEqual(got, {"client-poc": "analyst", "analyst": None})
+        finally:
+            shutil.rmtree(tmp)
 
 
 if __name__ == "__main__":

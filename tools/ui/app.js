@@ -20,7 +20,7 @@ const KIND = {
 };
 const EXP_STATE = {
   stub: ["New", "jd"], interviewing: ["Interviewing", "running-static"], interviewed: ["To curate", "draft"],
-  condensed: ["In CV", "rendered"], archived: ["Archived", "jd"],
+  condensed: ["In CV", "rendered"], archived: ["Archived", "jd"], planned: ["Planned", "planned"],
 };
 const CHANGE_RE = /^Change requested in (UI|chat)$/;
 
@@ -34,9 +34,8 @@ const seen = {};         // slug -> Set(question text), to animate only new card
 let poll = null;         // {jobId, slug, since, lines, view, timer}, where slug is the job key
 let offline = false;
 const SCOPES = ["apps", "exps", "master", "goals"];   // the sidebar tabs
-const EXP_FILTERS = ["all", "incv", "pending"];
 let scope = SCOPES.includes(store0("cvs-scope")) ? store0("cvs-scope") : "apps";   // a stale stored value falls back to apps
-let expFilter = EXP_FILTERS.includes(store0("cvs-exp-filter")) ? store0("cvs-exp-filter") : "all";
+const expPick = { status: store0("cvs-exp-status") || "", type: store0("cvs-exp-type") || "", year: store0("cvs-exp-year") || "", sort: store0("cvs-exp-sort") || "new" };
 let exps = [];
 let reviewPending = false;
 let expDetail = null;
@@ -1047,7 +1046,7 @@ function setScope(v, open = true) {
   $("#new-btn").hidden = !newLabel;
   $("#new-label").textContent = newLabel || "";
   $("#list-label").textContent = listLabel;
-  $("#exp-filter").hidden = v !== "exps";
+  $("#exp-tools").hidden = v !== "exps";
   renderList();
   if (!open) return;
   if (v === "master" && current !== "master") openMaster();
@@ -1058,7 +1057,9 @@ function setScope(v, open = true) {
 
 function setupScope() {
   $("#scope").addEventListener("click", (ev) => { const b = ev.target.closest("button"); if (b && b.dataset.v !== scope) setScope(b.dataset.v); });
-  $("#exp-filter").addEventListener("click", (ev) => { const b = ev.target.closest("button"); if (b && b.dataset.v !== expFilter) setExpFilter(b.dataset.v); });
+  for (const k of ["status", "type", "year", "sort"]) {
+    $(`#exp-${k}`).addEventListener("change", (ev) => { expPick[k] = ev.target.value; store.set(`cvs-exp-${k}`, ev.target.value); renderExpList(); });
+  }
   setScope(scope, false);
 }
 
@@ -1078,21 +1079,58 @@ function renderScopeDots() {
 
 /* ---------- experiences list and its filter ---------- */
 
+/** The Status menu. In Progress goes by dates (still going on today), so it overlaps In CV and Not in CV yet. */
+const EXP_STATUS = [["", "Any status"], ["incv", "In CV"], ["progress", "In Progress"], ["planned", "Planned"],
+                    ["archived", "Archived"], ["notyet", "Not in CV yet"]];
+
 function expMatches(x, f) {
   const st = expState(x);
-  if (f === "incv") return x.in_master && !x.archived;
-  if (f === "pending") return ["stub", "interviewing", "interviewed"].includes(st) || (st === "condensed" && !x.in_master);
+  if (f === "incv") return st === "condensed";
+  if (f === "progress") return x.phase === "ongoing" && st !== "planned";
+  if (f === "planned") return st === "planned" || x.phase === "planned";
+  if (f === "archived") return st === "archived";
+  if (f === "notyet") return ["stub", "interviewing", "interviewed"].includes(st);
   return true;
 }
 
-function expFilterCounts() {
-  return Object.fromEntries(EXP_FILTERS.map((f) => [f, exps.filter((x) => expMatches(x, f)).length]));
+const EXP_TYPES = { work: "Work", internship: "Internship", project: "Project", leadership: "Leadership", education: "Education", "self-study": "Self-study", sport: "Sport" };
+
+/** The calendar years an experience spans, an open end counting up to this year. */
+function expYears(x) {
+  if (!x.start) return [];
+  const from = +x.start.slice(0, 4), to = x.end === "present" ? new Date().getFullYear() : +(x.end || x.start).slice(0, 4);
+  return Array.from({ length: Math.max(0, to - from) + 1 }, (_, i) => from + i);
 }
 
-function setExpFilter(v) {
-  expFilter = v;
-  store.set("cvs-exp-filter", v);
-  renderExpList();
+/** The Type and Year menus narrow the list and the counts in the Status menu. */
+function expPicked(x) {
+  return (!expPick.type || x.type === expPick.type) && (!expPick.year || expYears(x).includes(+expPick.year));
+}
+
+/** Newest first sorts by end (ongoing first, undated last), oldest first by start. */
+function expSorter(sort) {
+  const end = (x) => (x.end === "present" ? "9999" : x.end || "");
+  if (sort === "az") return (a, b) => a.title.localeCompare(b.title);
+  if (sort === "old") return (a, b) => (a.start || "9999").localeCompare(b.start || "9999") || a.title.localeCompare(b.title);
+  return (a, b) => end(b).localeCompare(end(a)) || (b.start || "").localeCompare(a.start || "") || a.title.localeCompare(b.title);
+}
+
+function fillSelect(sel, options, value) {
+  sel.replaceChildren(...options.map(([v, label]) => el("option", { value: v, text: label })));
+  sel.value = options.some(([v]) => v === value) ? value : options[0][0];
+  return sel.value;
+}
+
+/** Status shows a count per option. Type and Year list only what the experiences have. A stored choice that no longer exists resets to any. */
+function renderExpTools() {
+  const n = (f) => exps.filter((x) => expPicked(x) && expMatches(x, f)).length;
+  expPick.status = fillSelect($("#exp-status"), EXP_STATUS.map(([v, label]) => [v, v ? `${label} (${n(v)})` : `${label} (${n("")})`]), expPick.status);
+  const types = [...new Set(exps.map((x) => x.type).filter(Boolean))].sort((a, b) => Object.keys(EXP_TYPES).indexOf(a) - Object.keys(EXP_TYPES).indexOf(b));
+  expPick.type = fillSelect($("#exp-type"), [["", "All types"], ...types.map((t) => [t, EXP_TYPES[t] || t])], expPick.type);
+  const years = [...new Set(exps.flatMap(expYears))].sort((a, b) => b - a);
+  expPick.year = fillSelect($("#exp-year"), [["", "Any year"], ...years.map((y) => [String(y), String(y)])], expPick.year);
+  $("#exp-sort").value = ["new", "old", "az"].includes(expPick.sort) ? expPick.sort : "new";
+  expPick.sort = $("#exp-sort").value;
 }
 
 /** The first experience that needs attention, else the first in the list. */
@@ -1104,47 +1142,72 @@ function openFirstExp() {
     el("button", { class: "btn primary", onclick: () => openNewExp() }, "New experience"))));
 }
 
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** The notes' dates, or the span the server read from the master CV heading when the notes still say TODO. */
+function expDates(x) {
+  if (/\d{4}|present|planned|AY\d/i.test(x.dates || "")) return cleanDates(x.dates);
+  const m = (v) => (v === "present" ? "Present" : v ? `${MON[+v.slice(5, 7) - 1]} ${v.slice(0, 4)}` : "");
+  return x.start ? [m(x.start), x.end !== x.start ? m(x.end) : ""].filter(Boolean).join(" - ") : "";
+}
+
 function cleanDates(d) { return (d || "").replace(/\s*\((?:[A-Z][\w'-]*, \d{4}-\d{2}-\d{2}|planned|in progress)[^)]*\)\s*$/i, "").replace(/ – /g, " - "); }
 
+/** One CV label per item. A curated or archived entry that has not started yet reads Planned. */
 function expState(x) {
   if (x.interviewing) return "interviewing";
+  if (x.phase === "planned" && (x.archived || x.status === "condensed")) return "planned";
   if (x.archived) return "archived";
   return x.status in EXP_STATE ? x.status : "stub";
 }
 
+/** "Data Analyst Intern (Part-Time)" -> "DAI": initials of the title's main words, else its first word. */
+function shortTitle(t) {
+  const words = (t || "").replace(/\(.*$/, "").split(/[\s,]+/).filter((w) => /^[A-Z]/.test(w));
+  const ini = words.map((w) => w[0]).join("");
+  return ini.length >= 2 && ini.length <= 4 ? ini : words[0] || t;
+}
+
 function expPill(x, running) {
   if (running) return el("span", { class: "pill running" }, el("span", { class: "dot" }), "Working");
+  const parent = x.part_of && exps.find((p) => p.slug === x.part_of);
+  if (parent && expState(x) === "condensed") return el("span", { class: "pill rendered", title: `Merged into ${parent.title} on your CV` }, `Part of ${shortTitle(parent.title)}`);
   const [label, cls] = EXP_STATE[expState(x)];
   return el("span", { class: `pill ${cls}` }, label);
 }
 
-const EXP_EMPTY = { all: "No experiences yet.", incv: "No experiences are in your master CV yet.", pending: "Nothing is waiting on you." };
+const EXP_EMPTY = { "": "No experiences yet.", incv: "Nothing is in your CV yet.", progress: "Nothing is in progress.", planned: "Nothing planned.", archived: "Nothing archived.", notyet: "Everything is in your CV." };
 
 function renderExpList() {
   const nav = $("#app-list");
   nav.replaceChildren();
-  const counts = expFilterCounts();
-  for (const b of $("#exp-filter").querySelectorAll("button")) {
-    b.setAttribute("aria-checked", String(b.dataset.v === expFilter));
-    b.querySelector(".count").textContent = String(counts[b.dataset.v]);
-  }
-  const shown = exps.filter((x) => expMatches(x, expFilter));
-  if (!shown.length) nav.append(el("div", { class: "empty-list", text: EXP_EMPTY[expFilter] }));
+  renderExpTools();
+  const shown = exps.filter((x) => expPicked(x) && expMatches(x, expPick.status)).sort(expSorter(expPick.sort));
+  if (!shown.length && (expPick.type || expPick.year) && exps.some((x) => expMatches(x, expPick.status))) {
+    nav.append(el("div", { class: "empty-list" }, "Nothing matches these filters. ",
+      el("button", { class: "text-btn", type: "button", onclick: () => { for (const k of ["type", "year"]) { expPick[k] = ""; store.set(`cvs-exp-${k}`, ""); } renderExpList(); } }, "Clear filters")));
+  } else if (!shown.length) nav.append(el("div", { class: "empty-list", text: EXP_EMPTY[expPick.status] }));
   const groups = [["Experience", (x) => x.section === "Experience"], ["Projects", (x) => x.section === "Projects"],
                   ["Hackathons and competitions", (x) => (x.section || "").startsWith("Hackathons")],
                   ["Leadership & activities", (x) => (x.section || "").startsWith("Leadership")],
                   ["Education and other", () => true]];
-  if (expFilter === "all") groups.unshift(["Needs you", (x) => ["stub", "interviewing", "interviewed"].includes(expState(x))]);
+  if (!expPick.status) groups.unshift(["Needs you", (x) => ["stub", "interviewing", "interviewed"].includes(expState(x))]);
   const placed = new Set();
+  const item = (x, child) => el("button", { class: `app-item${child ? " exp-child" : ""}`, type: "button", "aria-current": String(current === `exp:${x.slug}`), onclick: () => openExp(x.slug) },
+    el("div", { class: "name" }, el("span", { text: x.title }), expPill(x, active[`exp:${x.slug}`])),
+    el("div", { class: "role", text: [x.organisation, expDates(x)].filter(Boolean).join(" · ") }),
+    x.phase === "ongoing" && expState(x) !== "planned" ? el("div", { class: "exp-now", text: "In Progress" }) : null);
+  // an experience merged into another entry (style rule 7) sits right under it, unless a filter hid the parent
+  const children = (p) => shown.filter((x) => x.part_of === p.slug);
+  const nested = new Set(shown.filter((x) => x.part_of && shown.some((p) => p.slug === x.part_of)).map((x) => x.slug));
   for (const [name, test] of groups) {
-    const items = shown.filter((x) => !placed.has(x.slug) && test(x));
+    const items = shown.filter((x) => !placed.has(x.slug) && !nested.has(x.slug) && test(x));
     if (!items.length) continue;
     nav.append(el("div", { class: "group-label", text: name }));
     for (const x of items) {
       placed.add(x.slug);
-      nav.append(el("button", { class: "app-item", type: "button", "aria-current": String(current === `exp:${x.slug}`), onclick: () => openExp(x.slug) },
-        el("div", { class: "name" }, el("span", { text: x.title }), expPill(x, active[`exp:${x.slug}`])),
-        el("div", { class: "role", text: [x.organisation, cleanDates(x.dates)].filter(Boolean).join(" · ") })));
+      nav.append(item(x, false));
+      for (const c of children(x)) { placed.add(c.slug); nav.append(item(c, true)); }
     }
   }
 }

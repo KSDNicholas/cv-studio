@@ -540,9 +540,17 @@ body > .stopped .illus { margin-bottom: 14px; }
 .segmented.scope button { padding: 6px 4px; font-size: 12px; white-space: nowrap; gap: 4px; position: relative; }
 .scope-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); flex: none; }
 .scope-dot[hidden] { display: none; }
-.exp-filter { display: grid; width: 100%; margin: 0 0 8px; }
-.exp-filter .count { background: none; color: var(--text-3); padding: 0; font-weight: 500; }
-.exp-filter button[aria-checked="true"] .count { color: var(--text-2); }
+.exp-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 0 0 8px; }
+.pill.planned { color: var(--blue); background: var(--blue-bg); }
+.app-item.exp-child { margin-left: 14px; width: calc(100% - 14px); border-left: 2px solid var(--grey-bg); border-radius: 0 9px 9px 0; }
+.exp-now { display: flex; align-items: center; gap: 5px; margin-top: 3px; font-size: 11.5px; color: var(--text-2); }
+.exp-now::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
+.exp-tools[hidden] { display: none; }
+.exp-tools select {
+  min-width: 0; font: inherit; font-size: 12px; color: var(--text-2); background: var(--grey-bg);
+  border: 0; border-radius: 7px; padding: 5px 6px; cursor: pointer;
+}
+.exp-tools select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .nav-item .name { font-weight: 500; }
 .nav-item .hint { flex: none; font-variant-numeric: tabular-nums; }
 .group-label { font-size: 11px; font-weight: 600; color: var(--text-3); padding: 14px 10px 4px; letter-spacing: .02em; }

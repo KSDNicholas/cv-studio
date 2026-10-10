@@ -31,7 +31,7 @@ The `.venv` folder is gitignored. Everything runs from it, so nothing gets insta
 
 CV Studio has four tabs: Apps, Experiences, Master CV and Goals. On Apps, open the BrightMart application. Its Overview shows which experiences were picked for that job and the score behind each one.
 
-I'd suggest trying one real agent run on Robin before you start your own. On Experiences, switch the filter to Pending. Robin's bakery dashboard project is mid-interview there, so you can answer round 1 in Robin's place and watch the interviewer turn the answers into notes. It is the fastest way to see what the agents do.
+I'd suggest trying one real agent run on Robin before you start your own. On Experiences, Robin's bakery dashboard project sits at the top under Needs you. It is mid-interview, so you can answer round 1 in Robin's place and watch the interviewer turn the answers into notes. It is the fastest way to see what the agents do.
 
 ## Start your own
 

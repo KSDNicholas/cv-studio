@@ -147,7 +147,7 @@ CV Studio is a local web app with no framework and nothing to pay for. The serve
 
 The sidebar has four tabs: Apps, Experiences, Master CV and Goals. The master CV and my goals are not experiences, so each gets its own tab instead of sitting at the top of the experience list. On the Master CV tab the sidebar lists the CV's sections with entry counts and jumps to each one. On Goals it mirrors the page's own tabs. An amber dot on a tab means something there needs me: a change to review, an agent working, or a ranking that is out of date.
 
-The Experiences tab has a filter: All, In CV and Pending. Pending is anything where the loop isn't closed yet: new, being interviewed, or waiting for the curator. It is the quickest way to see what I still owe the system.
+Each experience in the list shows one label for where it stands with the CV (In CV, Planned, Archived, or its interview step) and an In Progress marker while its dates say it is ongoing. `expstate.timeline()` reads those dates, including academic years like AY24/25, and falls back to the master CV heading when the notes still say TODO. Status, Type, Year and Sort menus narrow the list, and Needs you at the top is the quickest way to see what I still owe the system. An experience merged into another entry sits indented under it.
 
 ```mermaid
 flowchart LR
