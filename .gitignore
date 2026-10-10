@@ -1,0 +1,21 @@
+.DS_Store
+node_modules/
+.venv/
+__pycache__/
+
+# CV Studio
+tools/ui.log
+tools/ui.pid
+launcher/build/
+tools/ui-history.json
+tools/ui-settings.json
+tools/undo/
+tools/goals-draft/
+
+# Your CV data. Ignored so it never reaches a public fork by accident.
+# To version it, keep a private copy of this repo and delete these lines there (docs/SETUP.md).
+/master/
+/experiences/
+/applications/
+/seed/
+/tracker.md

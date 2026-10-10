@@ -1,0 +1,71 @@
+<!doctype html>
+<!--
+  CV template. Owned by the user: tools/render.py fills it and never edits it.
+
+  Placeholders (replaced as plain text, HTML-escaped):
+    Robin Tay          full name from master/master-cv.md Header
+    +1 555 0100 • robin.tay@example.com • linkedin.com/in/robin-tay-example • github.com/robin-tay-example       phone • email • LinkedIn • GitHub
+    Available Jan 2027 - Jun 2027  availability line, or empty when the JD did not ask for one
+  Placeholder (replaced with HTML built by render.py):
+    <section class="cv-section"><h2>Education</h2><div class="entry"><div class="entry-head"><span class="title">BSc Business Analytics</span><span class="dates">Aug 2023 - May 2027 (Expected)</span></div><div class="org">Harbourview University</div><ul><li>GPA of 3.6 out of 4.0.</li><li>Relevant coursework: Database Systems, Data Warehousing, Data Visualisation, Statistics for Business, Regression Analysis, Programming with Python, Machine Learning for Business.</li></ul></div></section>
+<section class="cv-section"><h2>Experience</h2><div class="entry"><div class="entry-head"><span class="title">Data Analyst Intern</span><span class="dates">May 2026 - Aug 2026</span></div><div class="org">Larkspur Freight</div><ul><li>Wrote and documented the SQL that pulls about 1.2 million delivery records from the PostgreSQL warehouse into one clean table, checked against the finance team&#x27;s monthly delivery count.</li><li>Built a Power BI dashboard of on-time delivery rate that refreshes every morning, reaching about 25 weekly users and replacing a manual Excel update of about 3 hours a week.</li><li>Joined delivery records to driver shift data in Python (pandas) and found that 38% of late deliveries came from routes with depot loading times over 45 minutes.</li><li>Presented the finding to the head of operations and 4 depot managers. Two depots then changed their loading schedules, and their on-time delivery rose from 87% to 92% over 6 weeks.</li></ul></div></section>
+<section class="cv-section"><h2>Projects</h2><div class="entry"><div class="entry-head"><span class="title">Budget Buddy</span><span class="dates">Jan 2026 - Apr 2026</span></div><div class="org">Personal Project</div><ul><li>Built a Python tool, also used by 4 coursemates, that cleans bank CSV exports in pandas by fixing date formats, merging two export formats and removing duplicate rows.</li><li>Trained a logistic regression model in scikit-learn on TF-IDF features from about 2,000 hand-labelled transactions, reaching 91% accuracy on a held-out set of 400.</li><li>Automated a monthly Excel summary with a chart per category, cutting the time to categorise a month of spending from about 40 minutes to under 5 minutes.</li></ul></div></section>
+<section class="cv-section"><h2>Hackathons and case competitions</h2><div class="entry"><div class="entry-head"><span class="title">Harbourview Datathon 2026</span><span class="dates">Mar 2026</span></div><div class="org">Harbourview Analytics Society</div><ul><li>Placed 2nd of 30 teams in a 48-hour datathon on customer retention, predicting which customers of a subscription meal kit company would cancel.</li><li>Engineered features such as order frequency, days since last order and skipped weeks for the team&#x27;s gradient boosting model, which reached an AUC of 0.84 on the organisers&#x27; test set.</li><li>Built the slides and presented the team&#x27;s recommendation to offer a discount to customers who skipped 2 weeks in a row, which the judges called the easiest to act on.</li></ul></div></section>
+<section class="cv-section"><h2>Leadership &amp; Co-Curricular Activities</h2><div class="entry"><div class="entry-head"><span class="title">Treasurer</span><span class="dates">Aug 2025 - Present</span></div><div class="org">Harbourview Analytics Society</div><ul><li>Ran an introductory SQL workshop for first-year members twice, teaching about 60 members in total.</li><li>Moved expense tracking from paper receipts to a shared Google Sheet with a claim form, cutting reimbursement time from about 3 weeks to about 5 days.</li><li>Manages a yearly budget of about 8,000 dollars, mostly datathon sponsorship, for a society of about 150 members, and was re-elected for 2026 to 2027.</li></ul></div></section>
+<section class="cv-section skills"><h2>Skills</h2><p><strong>Technical:</strong> SQL (PostgreSQL, SQLite), Power BI, Python (pandas, scikit-learn, LightGBM, openpyxl), Excel, Git, Google Sheets, logistic regression, gradient boosting, feature engineering, TF-IDF text features</p></section>          the sections, in this structure:
+
+      <section class="cv-section">
+        <h2>Experience</h2>
+        <div class="entry">
+          <div class="entry-head"><span class="title">…</span><span class="dates">…</span></div>
+          <div class="org">…</div>
+          <ul><li>…</li></ul>
+        </div>
+      </section>
+      <section class="cv-section skills"><h2>Skills</h2><p><strong>Technical:</strong> …</p></section>
+
+  Style rules: one column, real text (no images or icons), A4, so ATS parsers read it cleanly.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Robin Tay CV</title>
+<style>
+  @page { size: A4; margin: 9mm 12mm 8mm; }
+  :root { --ink: #1a1a1a; --accent: #1f3a68; --muted: #4a4a4a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 9.4pt; line-height: 1.22; color: var(--ink); }
+  header { text-align: center; margin-bottom: 5pt; }
+  h1 { font-size: 19pt; letter-spacing: 0.5pt; color: var(--accent); margin: 0 0 2pt; text-transform: uppercase; }
+  .contact { color: var(--muted); font-size: 9.2pt; }
+  .availability { font-size: 9.2pt; font-weight: bold; margin-top: 1.5pt; }
+  .availability:empty { display: none; }
+  .cv-section { margin-top: 5pt; }
+  .skills { break-inside: avoid; }
+  h2 { font-size: 10.8pt; color: var(--accent); text-transform: uppercase; letter-spacing: 0.4pt;
+       border-bottom: 1.2pt solid var(--accent); margin: 0 0 2.5pt; padding-bottom: 1pt; break-after: avoid; }
+  .entry { margin-bottom: 3.5pt; break-inside: avoid; }
+  .entry-head { display: flex; justify-content: space-between; gap: 12pt; }
+  .title { font-weight: bold; }
+  .dates { white-space: nowrap; color: var(--muted); }
+  .org { font-style: italic; color: var(--muted); }
+  ul { margin: 1.5pt 0 0; padding-left: 13pt; }
+  li { margin: 0 0 0.8pt; }
+  .skills p { margin: 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Robin Tay</h1>
+  <div class="contact">+1 555 0100 • robin.tay@example.com • linkedin.com/in/robin-tay-example • github.com/robin-tay-example</div>
+  <div class="availability">Available Jan 2027 - Jun 2027</div>
+</header>
+<section class="cv-section"><h2>Education</h2><div class="entry"><div class="entry-head"><span class="title">BSc Business Analytics</span><span class="dates">Aug 2023 - May 2027 (Expected)</span></div><div class="org">Harbourview University</div><ul><li>GPA of 3.6 out of 4.0.</li><li>Relevant coursework: Database Systems, Data Warehousing, Data Visualisation, Statistics for Business, Regression Analysis, Programming with Python, Machine Learning for Business.</li></ul></div></section>
+<section class="cv-section"><h2>Experience</h2><div class="entry"><div class="entry-head"><span class="title">Data Analyst Intern</span><span class="dates">May 2026 - Aug 2026</span></div><div class="org">Larkspur Freight</div><ul><li>Wrote and documented the SQL that pulls about 1.2 million delivery records from the PostgreSQL warehouse into one clean table, checked against the finance team&#x27;s monthly delivery count.</li><li>Built a Power BI dashboard of on-time delivery rate that refreshes every morning, reaching about 25 weekly users and replacing a manual Excel update of about 3 hours a week.</li><li>Joined delivery records to driver shift data in Python (pandas) and found that 38% of late deliveries came from routes with depot loading times over 45 minutes.</li><li>Presented the finding to the head of operations and 4 depot managers. Two depots then changed their loading schedules, and their on-time delivery rose from 87% to 92% over 6 weeks.</li></ul></div></section>
+<section class="cv-section"><h2>Projects</h2><div class="entry"><div class="entry-head"><span class="title">Budget Buddy</span><span class="dates">Jan 2026 - Apr 2026</span></div><div class="org">Personal Project</div><ul><li>Built a Python tool, also used by 4 coursemates, that cleans bank CSV exports in pandas by fixing date formats, merging two export formats and removing duplicate rows.</li><li>Trained a logistic regression model in scikit-learn on TF-IDF features from about 2,000 hand-labelled transactions, reaching 91% accuracy on a held-out set of 400.</li><li>Automated a monthly Excel summary with a chart per category, cutting the time to categorise a month of spending from about 40 minutes to under 5 minutes.</li></ul></div></section>
+<section class="cv-section"><h2>Hackathons and case competitions</h2><div class="entry"><div class="entry-head"><span class="title">Harbourview Datathon 2026</span><span class="dates">Mar 2026</span></div><div class="org">Harbourview Analytics Society</div><ul><li>Placed 2nd of 30 teams in a 48-hour datathon on customer retention, predicting which customers of a subscription meal kit company would cancel.</li><li>Engineered features such as order frequency, days since last order and skipped weeks for the team&#x27;s gradient boosting model, which reached an AUC of 0.84 on the organisers&#x27; test set.</li><li>Built the slides and presented the team&#x27;s recommendation to offer a discount to customers who skipped 2 weeks in a row, which the judges called the easiest to act on.</li></ul></div></section>
+<section class="cv-section"><h2>Leadership &amp; Co-Curricular Activities</h2><div class="entry"><div class="entry-head"><span class="title">Treasurer</span><span class="dates">Aug 2025 - Present</span></div><div class="org">Harbourview Analytics Society</div><ul><li>Ran an introductory SQL workshop for first-year members twice, teaching about 60 members in total.</li><li>Moved expense tracking from paper receipts to a shared Google Sheet with a claim form, cutting reimbursement time from about 3 weeks to about 5 days.</li><li>Manages a yearly budget of about 8,000 dollars, mostly datathon sponsorship, for a society of about 150 members, and was re-elected for 2026 to 2027.</li></ul></div></section>
+<section class="cv-section skills"><h2>Skills</h2><p><strong>Technical:</strong> SQL (PostgreSQL, SQLite), Power BI, Python (pandas, scikit-learn, LightGBM, openpyxl), Excel, Git, Google Sheets, logistic regression, gradient boosting, feature engineering, TF-IDF text features</p></section>
+</body>
+</html>

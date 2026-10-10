@@ -1,0 +1,61 @@
+<!doctype html>
+<!--
+  CV template. Owned by the user: tools/render.py fills it and never edits it.
+
+  Placeholders (replaced as plain text, HTML-escaped):
+    {{name}}          full name from master/master-cv.md Header
+    {{contact}}       phone • email • LinkedIn • GitHub
+    {{availability}}  availability line, or empty when the JD did not ask for one
+  Placeholder (replaced with HTML built by render.py):
+    {{body}}          the sections, in this structure:
+
+      <section class="cv-section">
+        <h2>Experience</h2>
+        <div class="entry">
+          <div class="entry-head"><span class="title">…</span><span class="dates">…</span></div>
+          <div class="org">…</div>
+          <ul><li>…</li></ul>
+        </div>
+      </section>
+      <section class="cv-section skills"><h2>Skills</h2><p><strong>Technical:</strong> …</p></section>
+
+  Style rules: one column, real text (no images or icons), A4, so ATS parsers read it cleanly.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{name}} CV</title>
+<style>
+  @page { size: A4; margin: 9mm 12mm 8mm; }
+  :root { --ink: #1a1a1a; --accent: #1f3a68; --muted: #4a4a4a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 9.4pt; line-height: 1.22; color: var(--ink); }
+  header { text-align: center; margin-bottom: 5pt; }
+  h1 { font-size: 19pt; letter-spacing: 0.5pt; color: var(--accent); margin: 0 0 2pt; text-transform: uppercase; }
+  .contact { color: var(--muted); font-size: 9.2pt; }
+  .availability { font-size: 9.2pt; font-weight: bold; margin-top: 1.5pt; }
+  .availability:empty { display: none; }
+  .cv-section { margin-top: 5pt; }
+  .skills { break-inside: avoid; }
+  h2 { font-size: 10.8pt; color: var(--accent); text-transform: uppercase; letter-spacing: 0.4pt;
+       border-bottom: 1.2pt solid var(--accent); margin: 0 0 2.5pt; padding-bottom: 1pt; break-after: avoid; }
+  .entry { margin-bottom: 3.5pt; break-inside: avoid; }
+  .entry-head { display: flex; justify-content: space-between; gap: 12pt; }
+  .title { font-weight: bold; }
+  .dates { white-space: nowrap; color: var(--muted); }
+  .org { font-style: italic; color: var(--muted); }
+  ul { margin: 1.5pt 0 0; padding-left: 13pt; }
+  li { margin: 0 0 0.8pt; }
+  .skills p { margin: 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>{{name}}</h1>
+  <div class="contact">{{contact}}</div>
+  <div class="availability">{{availability}}</div>
+</header>
+{{body}}
+</body>
+</html>
