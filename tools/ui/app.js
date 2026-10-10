@@ -1058,7 +1058,7 @@ function setScope(v, open = true) {
 function setupScope() {
   $("#scope").addEventListener("click", (ev) => { const b = ev.target.closest("button"); if (b && b.dataset.v !== scope) setScope(b.dataset.v); });
   for (const k of ["status", "type", "year", "sort"]) {
-    $(`#exp-${k}`).addEventListener("change", (ev) => { expPick[k] = ev.target.value; store.set(`cvs-exp-${k}`, ev.target.value); renderExpList(); });
+    $(`#xf-${k}`).addEventListener("change", (ev) => { expPick[k] = ev.target.value; store.set(`cvs-exp-${k}`, ev.target.value); renderExpList(); });
   }
   setScope(scope, false);
 }
@@ -1124,13 +1124,13 @@ function fillSelect(sel, options, value) {
 /** Status shows a count per option. Type and Year list only what the experiences have. A stored choice that no longer exists resets to any. */
 function renderExpTools() {
   const n = (f) => exps.filter((x) => expPicked(x) && expMatches(x, f)).length;
-  expPick.status = fillSelect($("#exp-status"), EXP_STATUS.map(([v, label]) => [v, v ? `${label} (${n(v)})` : `${label} (${n("")})`]), expPick.status);
+  expPick.status = fillSelect($("#xf-status"), EXP_STATUS.map(([v, label]) => [v, v ? `${label} (${n(v)})` : `${label} (${n("")})`]), expPick.status);
   const types = [...new Set(exps.map((x) => x.type).filter(Boolean))].sort((a, b) => Object.keys(EXP_TYPES).indexOf(a) - Object.keys(EXP_TYPES).indexOf(b));
-  expPick.type = fillSelect($("#exp-type"), [["", "All types"], ...types.map((t) => [t, EXP_TYPES[t] || t])], expPick.type);
+  expPick.type = fillSelect($("#xf-type"), [["", "All types"], ...types.map((t) => [t, EXP_TYPES[t] || t])], expPick.type);
   const years = [...new Set(exps.flatMap(expYears))].sort((a, b) => b - a);
-  expPick.year = fillSelect($("#exp-year"), [["", "Any year"], ...years.map((y) => [String(y), String(y)])], expPick.year);
-  $("#exp-sort").value = ["new", "old", "az"].includes(expPick.sort) ? expPick.sort : "new";
-  expPick.sort = $("#exp-sort").value;
+  expPick.year = fillSelect($("#xf-year"), [["", "Any year"], ...years.map((y) => [String(y), String(y)])], expPick.year);
+  $("#xf-sort").value = ["new", "old", "az"].includes(expPick.sort) ? expPick.sort : "new";
+  expPick.sort = $("#xf-sort").value;
 }
 
 /** The first experience that needs attention, else the first in the list. */
