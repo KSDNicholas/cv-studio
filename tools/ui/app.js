@@ -222,7 +222,11 @@ document.addEventListener("visibilitychange", () => {
 /* ---------- sidebar ---------- */
 
 async function loadList() {
-  const [a, x] = await Promise.all([api("/api/apps"), api("/api/exp")]);
+  const [a, x, tr] = await Promise.all([api("/api/apps"), api("/api/exp"), api("/api/tracker")]);
+  todoData = tr;
+  const waiting = tr.items.filter((i) => i.section === tr.waiting).length;
+  $("#todo-count").textContent = String(waiting);
+  $("#todo-count").hidden = !waiting;
   apps = a.apps;
   active = a.active;
   exps = x.exps;
@@ -528,7 +532,8 @@ function goTab(t) {
 function rerenderCurrent() { if (current === "master") renderMaster(); else if (current === "goals") renderGoals(); else if (isExpKey(current)) renderExp(); else renderMain(); }
 /** Each page gets its own history entry, so the browser's Back button moves between pages instead of leaving. */
 function setHash(key) {
-  const h = key === "master" || key === "goals" ? key : isExpKey(key) ? `exp/${expSlug(key)}` : key || "";
+  const h = key === "master" || key === "goals" || key === "todo" ? key : isExpKey(key) ? `exp/${expSlug(key)}` : key || "";
+  $("#todo-btn").setAttribute("aria-current", String(key === "todo"));
   try { if (decodeURIComponent(location.hash.slice(1)) !== h) history.pushState(null, "", h ? `#${h}` : location.pathname); } catch (e) { /* sandbox */ }
 }
 
@@ -540,7 +545,7 @@ function navFailed(prev, e) {
   toast("CV Studio isn't running, so that page can't open yet. It reconnects by itself when the server is back.", { type: "error", sticky: false });
 }
 
-function reopen(key) { if (key === "master") return openMaster(); if (key === "goals") return openGoals(); if (isExpKey(key)) return openExp(expSlug(key)); return openApp(key); }
+function reopen(key) { if (key === "todo") return openTodo(); if (key === "master") return openMaster(); if (key === "goals") return openGoals(); if (isExpKey(key)) return openExp(expSlug(key)); return openApp(key); }
 
 /* ---------- views ---------- */
 
@@ -1053,6 +1058,7 @@ function setupTheme() {
 
 function setupSettings() {
   const d = $("#settings-dialog"), n = $("#set-notify"), s = $("#set-sound");
+  $("#todo-btn").addEventListener("click", () => openTodo());
   $("#settings-btn").addEventListener("click", async () => {
     try { const p = await api("/api/settings"); n.checked = p.notify; s.checked = p.sound; s.disabled = !p.notify; } catch (e) { return; }
     d.showModal();
@@ -1347,6 +1353,13 @@ function renderExp({ fade = false } = {}) {
       actions.push(el("button", { class: f.status === "interviewed" ? "btn" : "btn primary", onclick: () => openUpdate() }, "Update"));
     }
   }
+  if (!running) {
+    const more = [el("button", { class: "text-btn", onclick: () => editDetails() }, "Edit details")];
+    if (d.own_entry && !d.review) more.push(d.master_entry && d.master_entry.archived
+      ? el("button", { class: "text-btn", onclick: () => unarchiveEntry() }, "Move back to CV")
+      : el("button", { class: "text-btn", onclick: () => archiveEntry() }, "Archive"));
+    actions.unshift(...more);
+  }
   const head = el("div", { class: "head" },
     el("div", { class: "head-text" }, el("h1", { text: f.title || d.slug }),
       el("div", { class: "sub" }, el("span", { text: [f.organisation, cleanDates(f.dates)].filter(Boolean).join(" · ") }),
@@ -1381,8 +1394,119 @@ function expOverview() {
   const tracker = d.tracker.length ? el("div", { class: "card" }, el("h3", { text: "Waiting on you" }),
     ...d.tracker.map((r) => el("div", { class: "track-row" }, el("div", { class: "grow" },
       el("div", { class: "hint", text: r.section }), el("div", { text: r.cells.filter((c) => c !== d.slug).join(" · ") })),
-      el("button", { class: "text-btn", onclick: (e) => resolveRow(r.line, e.currentTarget) }, "Resolved")))) : null;
-  return el("div", {}, inCv, documentsCard(d), tracker, docCard("Notes (index.md)", d.index, false));
+      el("div", { class: "row-actions" },
+        el("button", { class: "text-btn", onclick: () => answerRow(r.line, r.cells.filter((c) => c !== d.slug).at(-1)) }, "Answer"),
+        el("button", { class: "text-btn", onclick: (e) => resolveRow(r.line, e.currentTarget) }, "Resolved"))))) : null;
+  return el("div", {}, inCv, documentsCard(d), tracker, notesCard(d));
+}
+
+const notesEditing = {};   // slug -> true while the notes editor is open
+
+/** Your notes, editable. Saving an entry already in the CV marks it Update to curate, so the CV catches up. */
+function notesCard(d) {
+  if (!notesEditing[d.slug]) {
+    const card = docCard("Notes (index.md)", d.index, false);
+    card.querySelector("summary").append(el("button", { type: "button", class: "text-btn",
+      onclick: (e) => { e.preventDefault(); e.stopPropagation(); notesEditing[d.slug] = true; renderExp(); } }, "Edit notes"));
+    return card;
+  }
+  const ta = el("textarea", { class: "notes-edit", spellcheck: "true", "aria-label": "Notes (index.md)" });
+  ta.value = store.get(`cvs-notes:${d.slug}`) || d.index;
+  ta.addEventListener("input", () => store.set(`cvs-notes:${d.slug}`, ta.value));
+  const save = el("button", { class: "btn primary", onclick: async (e) => {
+    try {
+      const r = await busy(e.currentTarget, "Saving…", () => api(`/api/exp/${encodeURIComponent(d.slug)}/notes`, { text: ta.value, index_mtime: d.index_mtime }));
+      store.set(`cvs-notes:${d.slug}`, ""); notesEditing[d.slug] = false;
+      toast(r.unchanged ? "Nothing changed" : d.master_entry ? "Notes saved. Run the curator when you want your CV to catch up." : "Notes saved", { type: "ok" });
+      await openExp(d.slug); loadList();
+    } catch (err) { /* toast shown */ }
+  } }, "Save notes");
+  return el("div", { class: "card" }, el("div", { class: "card-head" }, el("h3", { text: "Edit your notes" })),
+    el("p", { class: "hint", text: "These are your own words, so edit freely. Keep the block between the --- lines as it is (use Edit details for title, organisation, dates and type). Drafts that cite these lines may need re-extracting after a big edit." }),
+    ta, el("div", { class: "row-actions" }, save,
+      el("button", { class: "text-btn", onclick: () => { store.set(`cvs-notes:${d.slug}`, ""); notesEditing[d.slug] = false; renderExp(); } }, "Cancel")));
+}
+
+/** A small form in a dialog. onSubmit gets the values; if it throws, the message shows and the dialog stays open. */
+function formDialog(title, intro, fields, yes, onSubmit) {
+  const d = el("dialog", { class: "form-dialog" });
+  const inputs = {};
+  const msg = el("p", { class: "form-msg", role: "alert" });
+  const submit = el("button", { type: "submit", class: "btn primary" }, yes);
+  const form = el("form", {}, el("h2", { text: title }), intro ? el("p", { class: "muted", text: intro }) : null,
+    ...fields.map((f) => {
+      const inp = f.type === "select" ? el("select", { name: f.name }, ...f.options.map(([v, l]) => el("option", { value: v, text: l })))
+        : f.type === "textarea" ? el("textarea", { name: f.name, rows: f.rows || "3" }) : el("input", { name: f.name, type: "text", autocomplete: "off" });
+      inp.value = f.value || "";
+      if (f.required) inp.required = true;
+      inputs[f.name] = inp;
+      return el("label", {}, f.label, inp, f.hint ? el("span", { class: "hint", text: f.hint }) : null);
+    }),
+    msg, el("div", { class: "dialog-actions" }, el("button", { type: "button", class: "text-btn", onclick: () => d.close() }, "Cancel"), submit));
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const values = Object.fromEntries(Object.entries(inputs).map(([k, v]) => [k, v.value]));
+    try { await busy(submit, "Saving…", () => onSubmit(values)); d.close(); }
+    catch (e) { msg.textContent = e.message; }
+  });
+  d.append(form);
+  d.addEventListener("close", () => d.remove());
+  document.body.append(d);
+  d.showModal();
+  const first = form.querySelector("input, select, textarea");
+  if (first) first.focus();
+}
+
+const TYPE_SECTION = { work: "Experience", internship: "Experience", project: "Projects", leadership: "Leadership & Co-Curricular Activities",
+                       sport: "Leadership & Co-Curricular Activities", education: "Education", "self-study": "Education" };
+
+function editDetails() {
+  const d = expDetail, f = d.front;
+  formDialog("Edit details", "Saved straight away, no agent run. If this experience is in your CV, it then reads Update to curate until the curator updates the heading.", [
+    { name: "title", label: "Title", value: f.title, required: true },
+    { name: "organisation", label: "Organisation", value: f.organisation, required: true },
+    { name: "dates", label: "Dates", value: f.dates, required: true, hint: "Like May 2026 - Aug 2026, Sep 2026 - Present or AY24/25. Dates that haven't started yet, or the word Planned, make it Planned." },
+    { name: "type", label: "Type", type: "select", value: f.type, options: (d.types || []).map((t) => [t, t[0].toUpperCase() + t.slice(1)]) },
+  ], "Save details", async (v) => {
+    await api(`/api/exp/${encodeURIComponent(d.slug)}/details`, { ...v, index_mtime: d.index_mtime });
+    toast("Details saved", { type: "ok" });
+    await loadList(); await openExp(d.slug);
+  });
+}
+
+function archiveEntry() {
+  const d = expDetail;
+  formDialog("Archive this entry?", "It moves to the Archive section of your master CV, so no tailored CV picks it. Nothing is deleted, and you can move it back any time. You review the change before it's kept.", [
+    { name: "reason", label: "Why", type: "textarea", rows: "2", required: true, hint: "A few words, kept with the entry. For example: older work, a newer project shows the same skills." },
+  ], "Archive", async (v) => {
+    await api(`/api/exp/${encodeURIComponent(d.slug)}/archive`, v);
+    tab[current] = "changes";
+    toast("Moved to Archive. Keep or Undo it on the Changes tab.", { type: "ok" });
+    await loadList(); await openExp(d.slug);
+  });
+}
+
+function unarchiveEntry() {
+  const d = expDetail;
+  const options = (d.sections || []).filter((x) => x !== "Archive").map((x) => [x, x]);
+  formDialog("Move back to your CV", "It leaves the Archive and joins this section, at the end. You review the change before it's kept.", [
+    { name: "section", label: "Section", type: "select", options, value: TYPE_SECTION[d.front.type] || (options[0] || [""])[0] },
+  ], "Move back", async (v) => {
+    await api(`/api/exp/${encodeURIComponent(d.slug)}/unarchive`, v);
+    tab[current] = "changes";
+    toast("Moved back. Keep or Undo it on the Changes tab.", { type: "ok" });
+    await loadList(); await openExp(d.slug);
+  });
+}
+
+function answerRow(line, question) {
+  formDialog("Answer", question, [
+    { name: "text", label: "Your answer", type: "textarea", rows: "3", required: true, hint: "Goes into this experience's notes with your name and today's date, so the curator can use it. The row then leaves the to-do list." },
+  ], "Save answer", async (v) => {
+    const r = await api("/api/tracker/answer", { line, text: v.text });
+    toast("Added to your notes. Run the curator when you want your CV to catch up.", { type: "ok" });
+    await loadList(); if (current === "todo") openTodo(); else await openExp(r.slug);
+  });
 }
 
 async function resolveRow(line, btn) {
@@ -1399,8 +1523,10 @@ const MAX_MB = 25;
 
 function documentsCard(d) {
   const list = el("div", { class: "doc-list", id: "doc-list" },
-    ...d.artifacts.map((a) => el("a", { class: "doc-row", href: `/files/exp/${encodeURIComponent(d.slug)}/artifacts/${encodeURIComponent(a.name)}`, target: "_blank", rel: "noopener" },
-      svg(ICON.file, "mini-doc"), el("span", { class: "grow", text: a.name }), el("span", { class: "hint", text: fmtSize(a.size) }))));
+    ...d.artifacts.map((a) => el("div", { class: "doc-line" },
+      el("a", { class: "doc-row", href: `/files/exp/${encodeURIComponent(d.slug)}/artifacts/${encodeURIComponent(a.name)}`, target: "_blank", rel: "noopener" },
+        svg(ICON.file, "mini-doc"), el("span", { class: "grow", text: a.name }), el("span", { class: "hint", text: fmtSize(a.size) })),
+      el("button", { class: "text-btn", "aria-label": `Remove ${a.name}`, onclick: (e) => removeDoc(a.name, e.currentTarget) }, "Remove"))));
   const input = el("input", { type: "file", multiple: true, accept: ALLOWED.join(","), hidden: true, onchange: (e) => { uploadFiles([...e.target.files]); e.target.value = ""; } });
   const zone = el("div", { class: "drop", tabindex: "0", role: "button", "aria-label": "Add documents",
     onclick: () => input.click(), onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } },
@@ -1410,6 +1536,13 @@ function documentsCard(d) {
     el("div", { class: "drop-icon", text: "＋" }), el("div", {}, el("strong", { text: "Drop documents here" }), " or click to choose"),
     el("div", { class: "hint", text: "Journals, READMEs, notes, slides as PDF, screenshots. Up to 25 MB each. The interviewer reads them and skips questions they answer." }), input);
   return el("div", { class: "card" }, el("div", { class: "card-head" }, el("h3", { text: "Documents" }), el("span", { class: "muted", text: `${d.artifacts.length} in artifacts/` })), zone, el("div", { id: "uploads" }), list);
+}
+
+async function removeDoc(name, btn) {
+  const ok = await confirmBox(`Remove ${name}?`, "The file is deleted from this experience's documents. Notes already taken from it stay in your notes.", "Remove");
+  if (!ok) return;
+  try { await busy(btn, "Removing…", () => api(`/api/exp/${encodeURIComponent(expDetail.slug)}/doc-remove`, { name })); toast("Removed", { type: "ok" }); openExp(expDetail.slug); }
+  catch (e) { /* toast shown */ }
 }
 
 function fmtSize(n) { return n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n > 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`; }
@@ -1470,7 +1603,8 @@ function expInterview() {
       el("div", {}, el("strong", { text: o.kind === "update" ? "Update interview" : "Interview" }), el("span", { class: "muted", text: ` · started ${o.date}` })),
       el("div", { class: "round-dots", "aria-label": `Round ${rounds.length || 1} of up to ${iv.max_rounds}` },
         ...Array.from({ length: iv.max_rounds }, (_, i) => el("span", { class: i < rounds.length - 1 ? "done" : i === rounds.length - 1 ? "now" : "" })),
-        el("span", { class: "hint", text: `Round ${rounds.length || 1} of up to ${iv.max_rounds}` }))));
+        el("span", { class: "hint", text: `Round ${rounds.length || 1} of up to ${iv.max_rounds}` }),
+        running ? null : el("button", { class: "text-btn", onclick: (e) => cancelInterview(e.currentTarget) }, "Cancel interview"))));
     if (o.note) wrap.append(el("div", { class: "note-card" }, el("span", { class: "kicker", text: "What changed" }), el("span", { text: o.note })));
     if (!rounds.length && running) {
       wrap.append(el("div", { class: "card round" }, el("div", { class: "round-label", text: "Round 1" }),
@@ -1525,7 +1659,8 @@ function roundCard(r, editable, applying, bare = false) {
       (!isNote && q.answers.length) || q.outcomes.length ? el("div", { class: "trail" },
         ...(isNote ? [] : q.answers.map((a) => el("div", {}, el("b", { text: "YOU" }), el("span", {}, a, tag ? tag.cloneNode(true) : null)))),
         ...q.outcomes.map((o) => el("div", {}, el("b", { text: "NOTE" }), el("span", { text: o })))) : null,
-      openQ && editable ? el("textarea", { "data-q": String(q.index), "data-key": hash(q.text), rows: "1", placeholder: "Your answer, in your own words (leave blank to skip)", "aria-label": `Answer to question ${q.index + 1}` }) : null);
+      openQ && editable ? el("textarea", { "data-q": String(q.index), "data-key": hash(q.text), rows: "1", placeholder: "Your answer, in your own words (leave blank to skip)", "aria-label": `Answer to question ${q.index + 1}` }) : null,
+      openQ && editable && !isNote ? el("button", { class: "text-btn skip", onclick: (e) => skipQuestion(q.index, e.currentTarget) }, "Skip this question") : null);
     card.append(node);
   }
   return card;
@@ -1567,6 +1702,18 @@ async function submitRound(verb, btn) {
     startPoll(r.job, key);
     loadList();
   } catch (e) { if (e.status === 409) openExp(expSlug(key)); }
+}
+
+async function skipQuestion(index, btn) {
+  try { await busy(btn, "Skipping…", () => api(`/api/exp/${encodeURIComponent(expDetail.slug)}/skip`, { index, mtime: expDetail.interview.mtime })); openExp(expDetail.slug); }
+  catch (e) { if (e.status === 409) openExp(expDetail.slug); }
+}
+
+async function cancelInterview(btn) {
+  const ok = await confirmBox("Cancel this interview?", "The interview closes without running the curator. Answers already recorded stay in your notes. Unanswered questions are dropped.", "Cancel interview");
+  if (!ok) return;
+  try { await busy(btn, "Closing…", () => api(`/api/exp/${encodeURIComponent(expDetail.slug)}/cancel`, {})); tab[current] = "overview"; await openExp(expDetail.slug); loadList(); }
+  catch (e) { /* toast shown */ }
 }
 
 async function startInterview(btn) {
@@ -1736,6 +1883,86 @@ async function masterAction(verb, btn = null) {
   };
   try { return btn ? await busy(btn, label, go) : await go(); }
   catch (e) { if (!btn && !e.offline) toast(e.message, { type: "error" }); }
+}
+
+/* ---------- to-do list (tracker.md) ---------- */
+
+let todoData = null;
+const todoEdit = {};   // row text -> "edit" while its editor is open
+
+/** Everything outstanding, from tracker.md. The agents add rows; here you answer, edit, resolve or add them. */
+async function openTodo() {
+  if (current !== "todo") parkPoll();
+  const prev = current;
+  current = "todo";
+  setHash("todo");
+  try { todoData = await api("/api/tracker"); } catch (e) { return navFailed(prev, e); }
+  if (current !== "todo") return;
+  renderTodo();
+}
+
+function renderTodo() {
+  const d = todoData;
+  const label = (sec) => (sec === d.waiting ? "Waiting on you" : sec);
+  const add = el("div", { class: "card" }, el("h3", { text: "Add an item" }),
+    el("p", { class: "hint", text: "Anything you want to remember: a fact to add later, a result to wait for, a question for yourself." }),
+    el("div", { class: "row-actions" }, el("button", { class: "btn", onclick: () => addTodo() }, "Add an item")));
+  const order = [d.waiting, "Waiting on a date or event", "Applications", "Skill gaps surfaced by applications", "Interview prep only (never on a CV)"];
+  const cards = order.map((sec) => {
+    const rows = d.items.filter((i) => i.section === sec);
+    if (!rows.length) return null;
+    return el("div", { class: "card" }, el("div", { class: "card-head" }, el("h3", { text: label(sec) }), el("span", { class: "muted", text: `${rows.length}` })),
+      ...rows.map((r) => todoRow(r)));
+  });
+  main.replaceChildren(el("div", { class: "main-inner enter" },
+    el("div", { class: "head" }, el("div", { class: "head-text" }, el("h1", { text: "To-do list" }),
+      el("div", { class: "sub" }, el("span", { text: "Everything outstanding, kept in tracker.md. Agents add rows as they work. Answer, edit or resolve them here." })))),
+    ...cards.filter(Boolean), add));
+}
+
+function todoRow(r) {
+  const d = todoData;
+  const header = r.header || r.cells.map(() => "");
+  const exp = r.section === "Waiting on a date or event" ? r.cells[1] : r.cells[0];
+  const answerable = r.kind === "row" && (r.section === d.waiting || r.section === "Waiting on a date or event") && d.titles[exp];
+  if (todoEdit[r.line]) {
+    const inputs = r.cells.map((c) => { const t = el("textarea", { rows: c.length > 80 ? "3" : "1" }); t.value = c; return t; });
+    return el("div", { class: "todo-row" },
+      ...inputs.map((t, i) => el("label", { class: "todo-cells" }, el("span", { class: "k", text: header[i] || "" }), t)),
+      el("div", { class: "row-actions" },
+        el("button", { class: "btn primary", onclick: async (e) => {
+          try { await busy(e.currentTarget, "Saving…", () => api("/api/tracker/edit", { line: r.line, cells: inputs.map((t) => t.value) })); delete todoEdit[r.line]; await loadList(); openTodo(); }
+          catch (err) { if (err.status === 400) openTodo(); }
+        } }, "Save"),
+        el("button", { class: "text-btn", onclick: () => { delete todoEdit[r.line]; renderTodo(); } }, "Cancel")));
+  }
+  return el("div", { class: "todo-row" },
+    el("div", { class: "todo-cells" }, ...r.cells.map((c, i) => el("div", {},
+      header[i] ? el("div", { class: "k", text: header[i] }) : null,
+      i === (r.section === "Waiting on a date or event" ? 1 : 0) && d.titles[c]
+        ? el("a", { href: `#exp/${encodeURIComponent(c)}`, text: d.titles[c] }) : el("div", {}, inline(c))))),
+    el("div", { class: "row-actions" },
+      answerable ? el("button", { class: "btn", onclick: () => answerRow(r.line, r.cells.at(-1)) }, "Answer") : null,
+      el("button", { class: "text-btn", onclick: () => { todoEdit[r.line] = "edit"; renderTodo(); } }, "Edit"),
+      el("button", { class: "text-btn", onclick: async (e) => {
+        const btn = e.currentTarget;   // gone once the confirm dialog's await returns
+        const ok = await confirmBox("Mark as resolved?", "The row leaves the to-do list (git keeps the history).", "Resolve");
+        if (!ok) return;
+        try { await busy(btn, "Saving…", () => api("/api/tracker/resolve", { line: r.line })); await loadList(); openTodo(); } catch (err) { /* toast shown */ }
+      } }, "Resolved")));
+}
+
+function addTodo() {
+  const d = todoData;
+  formDialog("Add an item", "", [
+    { name: "entry", label: "About", required: true, hint: `An experience's folder name (${Object.keys(d.titles).slice(0, 2).join(", ")}…), or anything else, like (master CV).` },
+    { name: "text", label: "What to do, or what closes it", type: "textarea", rows: "2", required: true },
+    { name: "when", label: "When (optional)", hint: "Leave empty for Waiting on you. Fill in, like After 12 Nov 2026, for Waiting on a date or event." },
+  ], "Add", async (v) => {
+    await api("/api/tracker/add", v);
+    toast("Added", { type: "ok" });
+    await loadList(); openTodo();
+  });
 }
 
 /* ---------- master CV page ---------- */
@@ -2143,6 +2370,7 @@ async function start() {
   setupQuit();
   try { await loadList(); } catch (e) { main.replaceChildren(el("div", { class: "main-inner" }, emptyState("Can't reach CV Studio", "Open the CV Studio app again; this page reconnects by itself."))); return; }
   const want = decodeURIComponent(location.hash.slice(1));
+  if (want === "todo") return finishStart(openTodo());
   if (want === "master") return finishStart(openMaster());
   if (want === "goals") return finishStart(openGoals());
   if (want.startsWith("exp/")) return finishStart(openExp(want.slice(4)));
@@ -2163,7 +2391,8 @@ function finishStart(p) {
   finishStart.done = true;
   window.addEventListener("hashchange", () => {
     const h = decodeURIComponent(location.hash.slice(1));
-    if (h === "master" && current !== "master") openMaster();
+    if (h === "todo" && current !== "todo") openTodo();
+    else if (h === "master" && current !== "master") openMaster();
     else if (h === "goals" && current !== "goals") openGoals();
     else if (h.startsWith("exp/") && current !== `exp:${h.slice(4)}`) openExp(h.slice(4));
     else if (h && h !== current && apps.some((a) => a.slug === h)) openApp(h);

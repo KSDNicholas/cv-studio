@@ -153,3 +153,42 @@ def delete_row(text: str, line: str) -> str:
         raise ValueError("that tracker row is no longer there (it may have changed)")
     lines.remove(line)
     return "\n".join(lines)
+
+
+WAITING = "Waiting on you (no deadline)"
+VIEW_SECTIONS = ("Waiting on a date or event", WAITING, "Applications", "Skill gaps surfaced by applications",
+                 "Interview prep only (never on a CV)")
+
+
+def all_items(text: str):
+    """Every row and bullet in the sections CV Studio's tracker page shows, with its header cells."""
+    lines = text.split("\n")
+    out = []
+    for heading in VIEW_SECTIONS:
+        try:
+            start, end = _section(lines, heading)
+        except ValueError:
+            continue
+        header = None
+        for i in range(start, end):
+            line = lines[i]
+            if line.startswith("|"):
+                cells = [c.strip() for c in line.strip().strip("|").split("|")]
+                if i + 1 < end and lines[i + 1].startswith("| ---"):
+                    header = cells
+                elif not line.startswith("| ---"):
+                    out.append({"section": heading, "line": line, "cells": cells, "header": header, "kind": "row"})
+            elif line.startswith("- "):
+                out.append({"section": heading, "line": line, "cells": [line[2:].strip()], "header": None, "kind": "bullet"})
+    return out
+
+
+def replace_item(text: str, old: str, cells) -> str:
+    """Rewrite one row (or bullet) by its exact current text, keeping its kind."""
+    lines = text.split("\n")
+    if old not in lines:
+        raise ValueError("that row changed or is gone. Reload the page")
+    new = f"- {_cell(cells[0])}" if old.startswith("- ") else "| " + " | ".join(_cell(c) for c in cells) + " |"
+    lines[lines.index(old)] = new
+    return "\n".join(lines)
+

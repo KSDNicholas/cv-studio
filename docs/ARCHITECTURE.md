@@ -28,7 +28,7 @@ There is exactly one human checkpoint: approval. Nothing changes content after i
 
 ## Four layers of truth
 
-Every layer is a plain markdown file. I can read it, git can diff it, and agents can edit it with normal file tools. Each file has exactly one writer. That one rule is what stops agents from quietly drifting my facts.
+Every layer is a plain markdown file. I can read it, git can diff it, and agents can edit it with normal file tools. Each file has one agent that writes it. The only other writer is me, through CV Studio code that shows me the change first. That rule is what stops agents from quietly drifting my facts.
 
 | Layer | File | What it holds | Written by |
 | --- | --- | --- | --- |

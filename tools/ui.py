@@ -29,6 +29,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 import appstate as s
+import mastercv as mc
 import expstate as e
 import trackerfile as t
 import goalsfile as g
@@ -903,6 +904,23 @@ def review_summary():
     return {k: p[k] for k in ("kind", "slugs", "when", "label", "diffs")} if p else None
 
 
+def who() -> str:
+    """How notes and pins name the person (the owner's short name)."""
+    return short_name()
+
+
+def index_mtime(exp: Path) -> str:
+    f = exp / "index.md"
+    return str(f.stat().st_mtime_ns) if f.exists() else ""
+
+
+def needs_curating(old: str, new: str) -> str:
+    """Notes or details changed on an entry already in the CV: mark it Update to curate, so the CV catches up."""
+    if new != old and e.front_matter(new).get("status") == "condensed":
+        return e.set_status(new, "interviewed")
+    return new
+
+
 def exp_detail(exp: Path):
     if not (exp / "index.md").exists():
         raise Refused(404, "no such experience")
@@ -919,7 +937,9 @@ def exp_detail(exp: Path):
             "artifacts": e.list_artifacts(exp), "master_entry": e.master_entry(master_md, exp.name),
             "tracker": t.rows_mentioning(t.TRACKER.read_text(), exp.name),
             "job": job_summary(f"exp:{exp.name}"),
-            "review": review if review and exp.name in review["slugs"] else None, "types": e.TYPES}
+            "review": review if review and exp.name in review["slugs"] else None, "types": e.TYPES,
+            "index_mtime": index_mtime(exp), "sections": mc.sections(master_md),
+            "own_entry": bool(mc.owned_block(master_md, exp.name))}
 
 
 def create_exp(body):
@@ -1007,6 +1027,115 @@ def exp_action(exp: Path, verb: str, body):
         t.update(lambda x: t.delete_row(x, body.get("line", "")),
                  lambda x: t.set_last_updated(x, today(), f"CV Studio: tracker row for {exp.name} resolved"))
         return {"ok": True}
+    # ----- the user's own edits: CV Studio code writes them, never an agent -----
+
+    def idle():
+        if key in ACTIVE:
+            raise Refused(409, "wait for the run on this experience to finish")
+        if any(JOBS[i].kind in WRITERS for i in ACTIVE.values()):
+            raise Refused(409, "wait for the running curator or interview to finish (it may be writing these notes)")
+
+    def index_fresh():
+        if body.get("index_mtime", "") != index_mtime(exp):
+            raise Refused(409, "the notes changed since you opened them (maybe in VS Code or chat). Reload first.")
+
+    idx = exp / "index.md"
+    try:
+        if verb == "details":
+            idle()
+            index_fresh()
+            old = idx.read_text()
+            new = e.edit_details(old, body.get("title"), body.get("organisation"), body.get("dates"), body.get("type"))
+            master_md = e.MASTER.read_text() if e.MASTER.exists() else ""
+            idx.write_text(needs_curating(old, new) if e.master_entry(master_md, exp.name) else new)
+            t.update(lambda x: t.set_last_updated(x, today(), f"CV Studio: {exp.name} details edited"))
+            return {"ok": True}
+        if verb == "notes":
+            idle()
+            index_fresh()
+            old = idx.read_text()
+            new = e.replace_notes(old, body.get("text") or "")
+            if new == old:
+                return {"unchanged": True}
+            idx.write_text(needs_curating(old, new))
+            t.update(lambda x: t.set_last_updated(x, today(), f"CV Studio: {exp.name} notes edited by hand"))
+            return {"ok": True}
+        if verb == "skip":
+            if not open_s:
+                raise Refused(409, "there is no open interview")
+            fresh()
+            iv_path.write_text(e.skip_question(iv, int(body.get("index", -1)), who(), date.today()))
+            return {"ok": True}
+        if verb == "cancel":
+            if not open_s:
+                raise Refused(409, "there is no open interview")
+            if key in ACTIVE:
+                raise Refused(409, "stop the running interview first")
+            iv_path.write_text(e.close_session(iv))
+            return {"ok": True}
+        if verb == "doc-remove":
+            idle()
+            e.remove_artifact(exp, body.get("name") or "")
+            return {"ok": True}
+        if verb in ("archive", "unarchive"):
+            idle()
+            no_review()
+            master_md = e.MASTER.read_text()
+            to = "Archive" if verb == "archive" else body.get("section") or ""
+            new = mc.move_entry(master_md, exp.name, to, who(), body.get("reason") or "", date.today())
+            undo.take(["master/master-cv.md"], {"kind": "manual", "slugs": [exp.name], "when": today(),
+                                                "label": f"{'Archived' if verb == 'archive' else 'Moved back to ' + to}: {lab}"})
+            e.MASTER.write_text(new)
+            undo.seal()
+            return {"review": True}
+    except ValueError as err:
+        raise Refused(400, str(err))
+    raise Refused(404, f"unknown action {verb}")
+
+
+def tracker_view():
+    text = t.TRACKER.read_text() if t.TRACKER.exists() else ""
+    exps = e.list_experiences()
+    return {"items": t.all_items(text), "titles": {x["slug"]: x["title"] for x in exps}, "waiting": t.WAITING}
+
+
+def tracker_action(verb, body):
+    line = body.get("line") or ""
+    note = lambda what: (lambda x: t.set_last_updated(x, today(), f"CV Studio: tracker {what}"))
+    try:
+        if verb == "resolve":
+            t.update(lambda x: t.delete_row(x, line), note("row resolved"))
+            return {"ok": True}
+        if verb == "edit":
+            cells = [str(c) for c in body.get("cells") or []]
+            if not cells or not all(c.strip() for c in cells):
+                raise ValueError("fill in every column")
+            t.update(lambda x: t.replace_item(x, line, cells), note("row edited"))
+            return {"ok": True}
+        if verb == "add":
+            entry, what, when = (" ".join(str(body.get(k) or "").split()) for k in ("entry", "text", "when"))
+            if not (entry and what):
+                raise ValueError("say what it is about and what closes it")
+            add = (lambda x: t.add_dated_item(x, when, entry, what)) if when else (lambda x: t.add_waiting_item(x, entry, what))
+            t.update(add, note("row added"))
+            return {"ok": True}
+        if verb == "answer":
+            item = next((i for i in t.all_items(t.TRACKER.read_text()) if i["line"] == line), None)
+            if not item:
+                raise ValueError("that row changed or is gone. Reload the page")
+            dated = item["section"] == "Waiting on a date or event"
+            slug, question = (item["cells"][1], item["cells"][2]) if dated else (item["cells"][0], item["cells"][-1])
+            exp = e.EXPS / slug
+            if not (exp / "index.md").exists():
+                raise ValueError("only a row about one experience can be answered here. Resolve or edit this one")
+            if f"exp:{slug}" in ACTIVE or any(JOBS[i].kind in WRITERS for i in ACTIVE.values()):
+                raise Refused(409, "wait for the running curator or interview to finish")
+            old = (exp / "index.md").read_text()
+            (exp / "index.md").write_text(needs_curating(old, e.add_answer_note(old, question, body.get("text"), who(), date.today())))
+            t.update(lambda x: t.delete_row(x, line), note(f"answered for {slug}"))
+            return {"ok": True, "slug": slug}
+    except ValueError as err:
+        raise Refused(400, str(err))
     raise Refused(404, f"unknown action {verb}")
 
 
@@ -1199,6 +1328,8 @@ class Handler(BaseHTTPRequestHandler):
                                    "types": e.TYPES, "goals": goals_summary()})
         if parts[:2] == ["api", "exp"] and len(parts) == 3:
             return self.send(200, exp_detail(e.resolve_exp(parts[2])))
+        if parts == ["api", "tracker"]:
+            return self.send(200, tracker_view())
         if parts == ["api", "master"]:
             return self.send(200, master_view())
         if parts == ["api", "goals"]:
@@ -1265,6 +1396,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, exp_action(e.resolve_exp(parts[2]), parts[3], body))
         if parts[:2] == ["api", "goals"] and len(parts) == 3:
             return self.send(200, goals_action(parts[2], body))
+        if parts[:2] == ["api", "tracker"] and len(parts) == 3:
+            return self.send(200, tracker_action(parts[2], body))
         if parts[:2] == ["api", "master"] and len(parts) == 3:
             try:
                 return self.send(200, master_action(parts[2], body))

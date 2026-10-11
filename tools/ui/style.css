@@ -640,3 +640,21 @@ textarea.editor { width: 100%; min-height: 60vh; font: 13px/1.55 ui-monospace, "
 .sel-title { font-weight: 600; overflow-wrap: anywhere; }
 .score-pill { flex: none; font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--grey-bg); color: var(--text-2); font-variant-numeric: tabular-nums; }
 .sel-nobreak { color: var(--amber); }
+
+/* ---------- your own edits and the to-do list ---------- */
+.todo-link { display: flex; align-items: center; justify-content: space-between; width: 100%; border: 0; background: var(--grey-bg); color: var(--text); font: inherit; font-size: 13px; font-weight: 500; padding: 7px 10px; border-radius: 8px; cursor: pointer; }
+.todo-link[aria-current="true"] { background: var(--surface); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+.todo-link .count[hidden] { display: none; }
+.form-dialog label { display: grid; gap: 4px; margin-bottom: 12px; font-size: 13px; color: var(--text-2); }
+.form-dialog input, .form-dialog select, .form-dialog textarea { font: inherit; font-size: 14px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.form-dialog .hint { font-size: 12px; }
+.doc-line { display: flex; align-items: center; gap: 6px; }
+.doc-line .doc-row { flex: 1; min-width: 0; }
+.notes-edit { width: 100%; min-height: 420px; font: 13px/1.5 var(--mono, ui-monospace, Menlo, monospace); padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
+.todo-row { display: grid; gap: 6px; padding: 12px 0; border-top: 1px solid var(--border); }
+.todo-row:first-of-type { border-top: 0; }
+.todo-cells { display: grid; gap: 2px; }
+.todo-cells .k { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-3); }
+.todo-row .row-actions { justify-content: flex-start; }
+.todo-row input, .todo-row textarea { font: inherit; width: 100%; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
+.q .skip { margin-top: 4px; }

@@ -43,6 +43,15 @@ When you click **Finish**, the curator condenses the notes into a master CV entr
 
 When something changes later, like a result comes in or you finish a project, open the experience and click **Update**. You describe what changed and get a short interview about just that.
 
+You can also change things yourself, without an agent run:
+
+- **Edit details** fixes the title, organisation, dates or type. Dates that haven't started yet, or the word Planned, mark it Planned.
+- **Edit notes** opens your notes as text. They're your own words, so edit freely.
+- **Archive** moves the entry out of your CV with a short reason, and **Move back to CV** reverses it. Both show you the change first, with Keep or Undo.
+- In an interview, **Skip this question** drops a question you don't want to answer, and **Cancel interview** closes it without running the curator.
+
+If you change the notes or details of something already in your CV, it reads **Update to curate** until you run the curator. That way your CV never quietly falls behind your notes.
+
 In chat, the same loop is `/curate add`, `/curate update <slug>`, or `/curate backfill` to start from an old CV in `seed/`.
 
 ## 2. Look at your master CV
@@ -51,7 +60,7 @@ The **Master CV** tab shows every entry, grouped by section and ranked by your g
 
 ![Robin's master CV](img/master.png)
 
-You never edit this file by hand. Only the curator writes it, from your notes. If a bullet is wrong, the fix belongs in the notes: open the experience, click Update and say what is wrong. That keeps the rule that every line on a CV traces to something you said.
+The curator writes this file from your notes. The only other changes are the ones you make in CV Studio, like Archive. Code writes those, shows them to you for Keep or Undo, and marks the entry with a `pin:` line so the curator never moves it back. If a bullet is wrong, fix the notes: open the experience, click Edit notes or Update, then run the curator. That keeps the rule that every line on a CV traces to something you said.
 
 ## 3. Apply for a job
 
@@ -102,9 +111,11 @@ Only your **Save** click writes `goals.md`. A backup is taken first and the chan
 
 Saving adds a tracker row saying the ranking is stale. Click **Refresh ranking** on the Master CV tab to let the curator re-order your entries for the new direction, then Keep or Undo as usual.
 
-## 5. The tracker
+## 5. The to-do list
 
-`tracker.md` is the list of everything outstanding: questions you haven't answered, things to revisit after a date ("add the result after the final"), applications in flight, and skills that job descriptions keep asking for that your notes don't show yet. Agents add rows as they work and delete them when they are resolved. Read it every so often. It is the to-do list for your CV.
+`tracker.md` is the list of everything outstanding: questions you haven't answered, things to revisit after a date ("add the result after the final"), applications in flight, and skills that job descriptions keep asking for that your notes don't show yet. Agents add rows as they work.
+
+Open **To-do list** at the bottom of the sidebar to see all of it. The number on the button counts what's waiting on you. **Answer** a question about an experience and your answer goes into that experience's notes, with your name and the date, so the curator can use it. **Edit** and **Resolved** handle the rest, and **Add an item** is for anything you want to remember.
 
 ## Making it yours
 

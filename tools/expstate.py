@@ -226,6 +226,75 @@ def list_artifacts(exp: Path):
             if f.is_file() and not f.name.startswith(".")]
 
 
+
+# ---------- the user's own edits (CV Studio code, never an agent) ----------
+
+FRONT_RE = re.compile(r"^---\n(.*?)\n---\n", re.S)
+
+
+def edit_details(md: str, title: str, organisation: str, dates: str, typ: str) -> str:
+    """Edit details: the four front-matter lines and the `# <title>, <organisation>` heading. The agents may not
+    touch these, so this is the only way to fix a typo, a wrong organisation or dates that moved."""
+    vals = {"title": _one_line(title or ""), "organisation": _one_line(organisation or ""),
+            "dates": _one_line(dates or ""), "type": (typ or "").strip()}
+    if not (vals["title"] and vals["organisation"] and vals["dates"]):
+        raise ValueError("title, organisation and dates are all needed")
+    if vals["type"] not in TYPES:
+        raise ValueError(f"type must be one of {', '.join(TYPES)}")
+    m = FRONT_RE.match(md)
+    if not m:
+        raise ValueError("index.md has no front matter")
+    block = m.group(1)
+    for k, v in vals.items():
+        if re.search(rf"(?m)^{k}:", block):
+            block = re.sub(rf"(?m)^{k}:.*$", lambda _: f"{k}: {v}", block, count=1)
+        else:
+            block += f"\n{k}: {v}"
+    body = re.sub(r"(?m)^# .*$", lambda _: f"# {vals['title']}, {vals['organisation']}", md[m.end():], count=1)
+    return f"---\n{block}\n---\n" + body
+
+
+def replace_notes(old: str, new: str) -> str:
+    """Edit notes: the user rewrites their own notes. The front matter must stay as it was (Edit details owns it)."""
+    new = new.replace("\r\n", "\n")
+    a, b = FRONT_RE.match(old), FRONT_RE.match(new)
+    if not b or not a or a.group(0) != b.group(0):
+        raise ValueError("leave the block between the --- lines as it is. Change title, organisation, dates or type with Edit details")
+    return new.rstrip("\n") + "\n"
+
+
+def add_answer_note(md: str, question: str, answer: str, who: str, today: date = None) -> str:
+    """An answer to an agent's question, kept in the notes so the curator can use it and it stays citable."""
+    today = today or date.today()
+    answer = _one_line(answer or "")
+    if not answer:
+        raise ValueError("type an answer first")
+    head = "## Answers in CV Studio"
+    line = f"- {answer} (answering: {_one_line(question)}) ({who}, {today:%Y-%m-%d})"
+    md = md.rstrip("\n") + "\n"
+    return md + (f"{line}\n" if head in md else f"\n{head}\n\n{line}\n")
+
+
+def skip_question(md: str, index: int, who: str, today: date = None) -> str:
+    """Skip: tick a question in the open round without answering it. The interviewer never asks it again."""
+    today = today or date.today()
+    rnd = current_round(md)
+    if not rnd or not (0 <= index < len(rnd["questions"])):
+        raise ValueError("there is no such question in the open round")
+    q = rnd["questions"][index]
+    if q["ticked"] or q["answers"]:
+        raise ValueError("that question is already answered or skipped")
+    lines = md.splitlines()
+    lines[q["line"]] = lines[q["line"]].replace("- [ ]", "- [x]", 1)
+    lines.insert(q["last"] + 1, f"  outcome: skipped by {who} in CV Studio ({today:%Y-%m-%d})")
+    return "\n".join(lines) + ("\n" if md.endswith("\n") else "")
+
+
+def remove_artifact(exp: Path, name: str):
+    if name not in {a["name"] for a in list_artifacts(exp)}:
+        raise ValueError("no such document")
+    (exp / "artifacts" / name).unlink()
+
 # ---------- interview.md ----------
 
 def parse_interview(md: str):

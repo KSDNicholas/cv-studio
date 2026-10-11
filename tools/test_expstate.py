@@ -174,5 +174,40 @@ class Timeline(unittest.TestCase):
             shutil.rmtree(tmp)
 
 
+class UserEdits(unittest.TestCase):
+    """CV Studio's own edits: code, never an agent (CLAUDE.md rule 2)."""
+    MD = "---\nslug: acme\ntitle: Analyst\norganisation: Acme\ndates: May 2026 - Aug 2026\ntype: internship\nstatus: condensed\n---\n\n# Analyst, Acme\n\n## Context\n- A fact.\n"
+
+    def test_edit_details_rewrites_front_matter_and_heading(self):
+        out = e.edit_details(self.MD, "Data Analyst", "Acme Pte Ltd", "Jan 2027 - Jun 2027", "work")
+        fm = e.front_matter(out)
+        self.assertEqual((fm["title"], fm["organisation"], fm["dates"], fm["type"], fm["status"]),
+                         ("Data Analyst", "Acme Pte Ltd", "Jan 2027 - Jun 2027", "work", "condensed"))
+        self.assertIn("# Data Analyst, Acme Pte Ltd\n", out)
+        self.assertIn("- A fact.", out)
+        with self.assertRaises(ValueError):
+            e.edit_details(self.MD, "", "Acme", "2026", "work")
+
+    def test_notes_edit_keeps_the_front_matter(self):
+        self.assertIn("- A new fact.", e.replace_notes(self.MD, self.MD + "- A new fact.\n"))
+        with self.assertRaisesRegex(ValueError, "Edit details"):
+            e.replace_notes(self.MD, self.MD.replace("title: Analyst", "title: Boss"))
+
+    def test_answer_goes_into_the_notes(self):
+        out = e.add_answer_note(self.MD, "What was the result?", "Placed 2nd of 30.", "Robin", date(2026, 10, 11))
+        self.assertIn("## Answers in CV Studio\n\n- Placed 2nd of 30. (answering: What was the result?) (Robin, 2026-10-11)\n", out)
+        again = e.add_answer_note(out, "Q2?", "A2.", "Robin", date(2026, 10, 11))
+        self.assertEqual(again.count("## Answers in CV Studio"), 1)
+
+    def test_skip_ticks_the_question(self):
+        iv = "# Interview record\n\n## Session 2026-10-11 (add)\nstatus: open\n\n### Round 1\n- [ ] 1. First?\n- [ ] 2. Second?\n"
+        out = e.skip_question(iv, 1, "Robin", date(2026, 10, 11))
+        q = e.current_round(out)["questions"]
+        self.assertEqual((q[0]["ticked"], q[1]["ticked"]), (False, True))
+        self.assertEqual(q[1]["outcomes"], ["skipped by Robin in CV Studio (2026-10-11)"])
+        with self.assertRaises(ValueError):
+            e.skip_question(out, 1, "Robin")
+
+
 if __name__ == "__main__":
     unittest.main()

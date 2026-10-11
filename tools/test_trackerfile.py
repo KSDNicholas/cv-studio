@@ -118,5 +118,17 @@ class Tracker(unittest.TestCase):
             t._section(text, h)
 
 
+class TrackerPage(unittest.TestCase):
+    def test_all_items_and_edit(self):
+        items = t.all_items(SAMPLE)
+        self.assertEqual([i["section"] for i in items].count("Applications"), 2)
+        row = next(i for i in items if i["cells"][0] == "(LinkedIn)")
+        self.assertEqual(row["header"], ["Entry", "Question"])
+        out = t.replace_item(SAMPLE, row["line"], ["(LinkedIn)", "Change the post count | now"])
+        self.assertIn("| (LinkedIn) | Change the post count / now |", out)
+        with self.assertRaises(ValueError):
+            t.replace_item(SAMPLE, "| gone |", ["x"])
+
+
 if __name__ == "__main__":
     unittest.main()

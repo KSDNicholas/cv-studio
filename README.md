@@ -26,7 +26,7 @@ flowchart LR
   class notes,master,ext,draft step
 ```
 
-Everything is plain markdown in the repo. Each file has exactly one writer. The agents are Claude Code subagents with narrow jobs. CV Studio is a small local web app that runs them for you. There is one human checkpoint, your Approve click, and nothing changes the content after it.
+Everything is plain markdown in the repo. Each file has one agent that writes it, and the only other writer is you, through CV Studio, which shows you every change first. The agents are Claude Code subagents with narrow jobs. CV Studio is a small local web app that runs them for you. There is one human checkpoint, your Approve click, and nothing changes the content after it.
 
 When you apply for a job, the extractor scores every entry in your master CV out of 10. It looks at how many of the job description's must-haves the entry shows, how close the work is to the role, what your goals say, and how recent it is, since recent work is easier to talk about in an interview. You see that breakdown for every pick, so nothing is chosen behind your back.
 
