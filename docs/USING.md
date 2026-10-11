@@ -50,7 +50,7 @@ You can also change things yourself, without an agent run:
 - **Archive** moves the entry out of your CV with a short reason, and **Move back to CV** reverses it. Both show you the change first, with Keep or Undo.
 - In an interview, **Skip this question** drops a question you don't want to answer, and **Cancel interview** closes it without running the curator.
 
-If you change the notes or details of something already in your CV, it reads **Update to curate** until you run the curator. That way your CV never quietly falls behind your notes.
+If you change the notes or details of something already in your CV, it reads **Update to curate** until you click **Update CV entry** and the curator catches the entry up. That way your CV never quietly falls behind your notes.
 
 In chat, the same loop is `/curate add`, `/curate update <slug>`, or `/curate backfill` to start from an old CV in `seed/`.
 
@@ -72,7 +72,7 @@ The **History** tab keeps your master CV as it was before each change you kept. 
 
 ## 3. Apply for a job
 
-Click **New application**, paste the job description, and give the company and role. CV Studio creates `applications/<yyyy-mm>-<company>-<role>/` and starts the extractor. It takes two or three minutes.
+Click **New application**, paste the job description, and give the company and role. (You need at least one experience in your master CV first. On a brand-new setup, CV Studio sends you there.) CV Studio creates `applications/<yyyy-mm>-<company>-<role>/` and starts the extractor. It takes two or three minutes.
 
 The extractor scores each master CV entry against the job, keeps the strongest, reads only their notes, and writes `extraction.md`. Every bullet ends with a citation like `(source: experiences/larkspur-analytics-intern/index.md L21, L41)`.
 

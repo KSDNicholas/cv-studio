@@ -794,6 +794,8 @@ def detail(app: Path):
 
 
 def create_app(body):
+    if not mc.entry_count(e.MASTER.read_text() if e.MASTER.exists() else ""):
+        raise Refused(409, "your master CV has no entries yet, so there's nothing to tailor. Add an experience first (Experiences tab)")
     company, role, jd = (body.get(k, "").strip() for k in ("company", "role", "jd"))
     if not (company and role and jd):
         raise Refused(400, "company, role and the job description are all needed")

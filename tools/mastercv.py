@@ -170,3 +170,8 @@ def set_bullets(md: str, slug: str, bullets, who: str, today: date = None) -> st
     block = with_pin(block, "bullets", who, today)
     out = lines[:b["start"]] + block + lines[b["end"]:]
     return "\n".join(out).rstrip("\n") + "\n"
+
+
+def entry_count(md: str) -> int:
+    """Entries a CV can be drafted from: everything outside Header, Skills and Archive."""
+    return sum(1 for b in _parse(md.splitlines())[1] if b["section"] not in ("Header", "Skills", "Archive"))

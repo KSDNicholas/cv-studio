@@ -24,6 +24,7 @@ const EXP_STATE = {
   updated: ["Update to curate", "draft"],   // in the master CV, but the notes changed since
 };
 const CHANGE_RE = /^Change requested in (UI|chat)$/;
+const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘↩" : "Ctrl+Enter";
 
 let apps = [];
 let active = {};
@@ -133,6 +134,24 @@ async function backOnline() {
   toast("Reconnected to CV Studio", { type: "ok" });
   await loadList().catch(() => {});
   if (current) reopen(current).catch(() => {});
+}
+
+/* ---------- what an agent said, readable ---------- */
+
+const SAID = { "interview.md": "Interview record", "index.md": "Notes", "thin": "Still thin", "closes": "Closes", "tracker": "Added to your to-do list",
+  "master-cv.md": "Master CV", "quantify?": "Needs numbers", "new tags": "New tags", "skipped": "Skipped", "open": "Question for you",
+  "proposal": "Proposal", "changed": "Changed", "kept": "Kept", "not done": "Not done", "extraction.md": "Draft", "questions": "Questions" };
+
+/** An agent's final message: its "label: value" lines as a short list (dropping the "none" ones), the full text under a toggle. */
+function agentSaid(message) {
+  const rows = [];
+  for (const line of (message || "").split("\n")) {
+    const m = line.match(/^\s*([A-Za-z.?\- ]{2,24}):\s*(.+)$/);
+    if (m && !/^none\b/i.test(m[2].trim())) rows.push([SAID[m[1].trim().toLowerCase()] || m[1].trim(), m[2].trim()]);
+  }
+  const raw = el("details", { class: "raw-said" }, el("summary", { text: "Show exactly what the agent wrote" }), el("pre", { class: "said", text: message }));
+  if (!rows.length) return el("div", {}, el("pre", { class: "said", text: message }));
+  return el("div", {}, el("dl", { class: "said-table" }, ...rows.flatMap(([k, v]) => [el("dt", { text: k }), el("dd", {}, inline(v))])), raw);
 }
 
 /* ---------- toasts, dialogs, busy buttons ---------- */
@@ -351,7 +370,7 @@ function headerActions(d, running) {
   const ext = d.extraction;
   const out = [];
   if (d.state === "jd only") {
-    out.push(el("button", { class: "btn primary", disabled: running, onclick: (e) => runAction("extract", {}, e.currentTarget, "Starting…") }, "Run extractor"));
+    out.push(el("button", { class: "btn primary", disabled: running, title: "The extractor reads the job description and your master CV and drafts a tailored CV with questions for you. A few minutes.", onclick: (e) => runAction("extract", {}, e.currentTarget, "Starting…") }, "Draft my CV"));
   }
   if (d.state === "draft") {
     out.push(el("button", { class: "btn", disabled: running, onclick: (e) => runAction("preview", {}, e.currentTarget, "Rendering…", "preview") }, "Preview"));
@@ -487,8 +506,8 @@ function resultCard(job) {
     icon = svg(ICON.check, "res-icon ok");
     title = k.done;
     sub = `Finished in ${fmtTime(job.ended - job.started)}`;
-    if (job.result && job.result.interviewer) body.push(el("pre", { class: "said", text: job.result.interviewer }));
-    if (job.result && job.result.message) body.push(el("pre", { class: "said", text: job.result.message }));
+    if (job.result && job.result.interviewer) body.push(agentSaid(job.result.interviewer));
+    if (job.result && job.result.message) body.push(agentSaid(job.result.message));
     if (job.result && job.result.new_tags) body.push(el("div", { class: "banner warn" }, el("div", { class: "grow", text: `New tag added to CLAUDE.md: ${job.result.new_tags}. Keep it, or Undo the change to veto it.` })));
     if (job.result && job.result.dropped && job.result.dropped.length) {
       body.push(el("div", { class: "hint", text: `To fit one page, ${job.result.dropped.length} bullet${job.result.dropped.length > 1 ? "s were" : " was"} trimmed: ${job.result.dropped.map((x) => `${x.entry} (“${x.bullet.split(" ").slice(0, 6).join(" ")}…”)`).join("; ")}.` }));
@@ -564,7 +583,7 @@ function viewOverview() {
   if (d.state === "jd only" && !running) {
     next = emptyState("Ready to draft your CV",
       "The extractor reads this job description and your master CV, then drafts a tailored CV with questions for you. It runs on your Claude login and takes a few minutes.",
-      el("button", { class: "btn primary", onclick: (e) => runAction("extract", {}, e.currentTarget, "Starting…") }, "Run extractor"));
+      el("button", { class: "btn primary", title: "The extractor reads the job description and your master CV and drafts a tailored CV with questions for you. A few minutes.", onclick: (e) => runAction("extract", {}, e.currentTarget, "Starting…") }, "Draft my CV"));
   } else if (d.state === "draft") {
     next = el("div", { class: "card next" }, el("h3", { text: ext.unticked ? `${ext.unticked} question${ext.unticked > 1 ? "s" : ""} for you` : "Ready to approve" }),
       el("p", { class: "muted", text: ext.unticked ? "Answer them in your own words. The extractor applies your answers and checks every citation again." : "Check the preview, then approve. Nothing changes the content after approval." }),
@@ -707,8 +726,8 @@ function selectedCard(ext) {
   });
   const canEdit = detail.state === "draft" && !(detail.job && detail.job.status === "running");
   return el("div", { class: "card" }, el("div", { class: "card-head" }, el("h3", { text: "Selected entries" }),
-      el("span", { class: "muted", text: `${entries.length} on the CV` }),
-      canEdit ? el("button", { class: "text-btn", onclick: () => { draftEditing[detail.slug] = true; renderMain(); } }, "Edit draft") : null),
+      el("div", { class: "row-actions" }, el("span", { class: "muted", text: `${entries.length} on the CV` }),
+        canEdit ? el("button", { class: "text-btn", onclick: () => { draftEditing[detail.slug] = true; renderMain(); } }, "Edit draft") : null)),
     el("p", { class: "hint", text: "Scored from the master CV: tags and keywords (up to 6), direct relevance (up to 3), your goals (+1 to -1) and recency (+1 to -1). Ties go to the more recent entry." }),
     ...rows);
 }
@@ -759,12 +778,12 @@ function viewQuestions() {
   wrap.append(card);
   if (editable) {
     wrap.append(el("div", { class: "card other" }, el("h3", { text: "Other changes" }),
-      el("div", { class: "hint", text: "Anything else to change on this CV, e.g. \"capitalise National Team\" or \"drop the parser project\"." }),
+      el("div", { class: "hint", text: "Anything else to change on this CV, e.g. \"drop the oldest project\" or \"lead with the dashboard bullet\"." }),
       el("textarea", { "data-q": "other", "data-key": "other", rows: "2", placeholder: "Optional", "aria-label": "Other changes" })));
     const counter = el("span", { class: "hint", id: "answered" });
-    const saved = el("span", { class: "hint saved", id: "draft-saved", text: "Draft saved" });
+    const saved = el("span", { class: "hint saved", id: "draft-saved", text: "Saved in this browser" });
     wrap.append(el("div", { class: "footer-bar" },
-      el("div", { class: "footer-info" }, counter, el("span", { class: "hint kbd", text: "⌘↩ to apply" }), saved),
+      el("div", { class: "footer-info" }, counter, el("span", { class: "hint kbd", text: `${MOD} to apply` }), saved),
       el("button", { class: "btn primary", id: "apply-btn", onclick: (e) => submitAnswers(e.currentTarget) }, "Apply my answers")));
     for (const ta of wrap.querySelectorAll("textarea[data-key]")) {
       ta.value = store.get(draftKey(d.slug, ta.dataset.key)) || "";
@@ -845,7 +864,7 @@ function viewLog() {
   if (!job) return emptyState("Nothing has run yet", "Activity from the extractor and renders appears here.");
   const wrap = el("div", {});
   const r = job.result || {};
-  if (job.status !== "running" && r.message) wrap.append(el("div", { class: "card" }, el("h3", { text: "The extractor said" }), el("pre", { class: "said", text: r.message })));
+  if (job.status !== "running" && r.message) wrap.append(el("div", { class: "card" }, el("h3", { text: "The extractor said" }), agentSaid(r.message)));
   if (r.diff) {
     const diff = el("div", { class: "diff mono" });
     for (const line of r.diff.split("\n")) {
@@ -1179,6 +1198,7 @@ function setupTheme() {
 function setupSettings() {
   const d = $("#settings-dialog"), n = $("#set-notify"), s = $("#set-sound");
   $("#todo-btn").addEventListener("click", () => openTodo());
+  $("#offline-retry").addEventListener("click", async () => { try { await fetch("/api/ping"); backOnline(); } catch (e) { toast("Still not running. Open the CV Studio app, then try again.", { type: "error", sticky: false }); } });
   $("#settings-btn").addEventListener("click", async () => {
     try { const p = await api("/api/settings"); n.checked = p.notify; s.checked = p.sound; s.disabled = !p.notify; } catch (e) { return; }
     d.showModal();
@@ -1201,6 +1221,7 @@ function setupQuit() {
     if (!ok) return;
     try { await api("/api/quit", {}); } catch (e) { /* already gone */ }
     stopPoll();
+    clearInterval(finishStart.timer);
     setDocStatus("idle");
     document.body.replaceChildren(el("div", { class: "stopped" }, el("div", {},
       svg(ICON.doc), el("h1", { text: "CV Studio has stopped" }), el("p", { text: "You can close this tab. Open the CV Studio app to start again." }))));
@@ -1347,12 +1368,16 @@ function shortTitle(t) {
   return ini.length >= 2 && ini.length <= 4 ? ini : words[0] || t;
 }
 
+const EXP_HELP = { stub: "New: not interviewed yet", interviewing: "An interview is open", interviewed: "Interviewed, not in your CV yet. Click Update CV entry",
+  updated: "In your CV, but the notes or details changed since. Click Update CV entry so the CV catches up", condensed: "In your master CV",
+  archived: "Archived: kept, but no tailored CV picks it", planned: "Planned: hasn't started, so it stays off CVs until it's done" };
+
 function expPill(x, running) {
   if (running) return el("span", { class: "pill running" }, el("span", { class: "dot" }), "Working");
   const parent = x.part_of && exps.find((p) => p.slug === x.part_of);
   if (parent && expState(x) === "condensed") return el("span", { class: "pill rendered", title: `Merged into ${parent.title} on your CV` }, `Part of ${shortTitle(parent.title)}`);
-  const [label, cls] = EXP_STATE[expState(x)];
-  return el("span", { class: `pill ${cls}` }, label);
+  const st = expState(x), [label, cls] = EXP_STATE[st];
+  return el("span", { class: `pill ${cls}`, title: EXP_HELP[st] || "" }, label);
 }
 
 const EXP_EMPTY = { "": "No experiences yet.", incv: "Nothing is in your CV yet.", progress: "Nothing is in progress.", planned: "Nothing planned.", archived: "Nothing archived.", notyet: "Everything is in your CV." };
@@ -1367,22 +1392,22 @@ function renderExpList() {
       el("button", { class: "text-btn", type: "button", onclick: () => { for (const k of ["type", "year"]) { expPick[k] = ""; store.set(`cvs-exp-${k}`, ""); } renderExpList(); } }, "Clear filters")));
   } else if (!shown.length) nav.append(el("div", { class: "empty-list", text: EXP_EMPTY[expPick.status] }));
   const groups = [["Experience", (x) => x.section === "Experience"], ["Projects", (x) => x.section === "Projects"],
-                  ["Hackathons and competitions", (x) => (x.section || "").startsWith("Hackathons")],
-                  ["Leadership & activities", (x) => (x.section || "").startsWith("Leadership")],
+                  ["Hackathons and case competitions", (x) => (x.section || "").startsWith("Hackathons")],
+                  ["Leadership & Co-Curricular Activities", (x) => (x.section || "").startsWith("Leadership")],
                   ["Education and other", () => true]];
   if (!expPick.status) groups.unshift(["Needs you", (x) => ["stub", "interviewing", "interviewed", "updated"].includes(expState(x))]);
   const placed = new Set();
   const item = (x, child) => el("button", { class: `app-item${child ? " exp-child" : ""}`, type: "button", "aria-current": String(current === `exp:${x.slug}`), onclick: () => openExp(x.slug) },
-    el("div", { class: "name" }, el("span", { text: x.title }), expPill(x, active[`exp:${x.slug}`])),
-    el("div", { class: "role", text: [x.organisation, expDates(x)].filter(Boolean).join(" · ") }),
-    x.phase === "ongoing" && expState(x) !== "planned" ? el("div", { class: "exp-now", text: "In Progress" }) : null);
+    el("div", { class: "name" }, el("span", { text: x.title, title: x.title }), expPill(x, active[`exp:${x.slug}`])),
+    el("div", { class: "role", text: [x.organisation, expDates(x)].filter(Boolean).join(" · "), title: [x.organisation, expDates(x)].filter(Boolean).join(" · ") }),
+    x.phase === "ongoing" && expState(x) !== "planned" ? el("div", { class: "exp-now", text: "In Progress", title: "Its dates say you're still doing it" }) : null);
   // an experience merged into another entry (style rule 7) sits right under it, unless a filter hid the parent
   const children = (p) => shown.filter((x) => x.part_of === p.slug);
   const nested = new Set(shown.filter((x) => x.part_of && shown.some((p) => p.slug === x.part_of)).map((x) => x.slug));
   for (const [name, test] of groups) {
     const items = shown.filter((x) => !placed.has(x.slug) && !nested.has(x.slug) && test(x));
     if (!items.length) continue;
-    nav.append(el("div", { class: "group-label", text: name }));
+    nav.append(el("div", { class: "group-label", text: name, title: name === "Needs you" ? "Not interviewed yet, mid-interview, or not in your CV yet" : "" }));
     for (const x of items) {
       placed.add(x.slug);
       nav.append(item(x, false));
@@ -1469,7 +1494,7 @@ function renderExp({ fade = false } = {}) {
   if (!d.interview.open && !running) {
     if (f.status === "stub") actions.push(el("button", { class: "btn primary", onclick: (e) => startInterview(e.currentTarget) }, "Start interview"));
     else {
-      if (f.status === "interviewed") actions.push(el("button", { class: "btn primary", onclick: (e) => expAction("curate", {}, e.currentTarget, "Starting…") }, "Run curator"));
+      if (f.status === "interviewed") actions.push(el("button", { class: "btn primary", title: "The curator writes this experience's master CV entry from your notes. About 2 minutes, then you Keep or Undo.", onclick: (e) => expAction("curate", {}, e.currentTarget, "Starting…") }, "Update CV entry"));
       actions.push(el("button", { class: f.status === "interviewed" ? "btn" : "btn primary", onclick: () => openUpdate() }, "Update"));
     }
   }
@@ -1511,7 +1536,7 @@ function expOverview() {
       el("div", { class: "chips" }, ...m.tags.map((x) => el("span", { class: "chip", text: x }))),
       entryControls(d))
     : el("div", { class: "card next" }, el("h3", { text: "Not in your master CV yet" }),
-      el("p", { class: "muted", text: d.front.status === "stub" ? "Start the interview. When you finish, the curator writes the entry and you review it." : "Run the curator to write this entry from your notes." }));
+      el("p", { class: "muted", text: d.front.status === "stub" ? "Start the interview. When you finish, the curator writes the entry and you review it." : "Click Update CV entry and the curator writes it from your notes." }));
   const tracker = d.tracker.length ? el("div", { class: "card" }, el("h3", { text: "Waiting on you" }),
     ...d.tracker.map((r) => el("div", { class: "track-row" }, el("div", { class: "grow" },
       el("div", { class: "hint", text: r.section }), el("div", { text: r.cells.filter((c) => c !== d.slug).join(" · ") })),
@@ -1822,7 +1847,7 @@ function expInterview() {
         const canNext = rounds.length < iv.max_rounds && !lastRes.nothing_more;
         const counter = el("span", { class: "hint", id: "answered" });
         wrap.append(el("div", { class: "footer-bar" },
-          el("div", { class: "footer-info" }, counter, el("span", { class: "hint kbd", text: "⌘↩ next round" }), el("span", { class: "hint saved", id: "draft-saved", text: "Draft saved" })),
+          el("div", { class: "footer-info" }, counter, el("span", { class: "hint kbd", text: `${MOD} next round` }), el("span", { class: "hint saved", id: "draft-saved", text: "Saved in this browser" })),
           el("div", { class: "row-actions" },
             canNext ? el("button", { class: "btn", id: "next-btn", onclick: (e) => submitRound("next", e.currentTarget) }, "Next round") : null,
             el("button", { class: "btn primary", id: "finish-btn", onclick: (e) => submitRound("finish", e.currentTarget) }, "Finish"))));
@@ -1879,6 +1904,13 @@ async function submitRound(verb, btn) {
   }
   if (verb === "next" && !Object.keys(answers).length && !other) { toast("Type at least one answer first, or click Finish."); return; }
   if (verb === "finish") {
+    const o = expDetail.interview.open;
+    const anything = Object.keys(answers).length || other || o.rounds.some((r) => r.questions.some((q) => q.answers.length || (q.ticked && !q.outcomes.some((x) => /^skipped/.test(x)))));
+    if (!anything) {   // finishing with nothing said would mark it interviewed and run the curator on old notes
+      const v = await chooseBox("Nothing answered yet", "Finishing now marks this experience interviewed and asks the curator to write its CV entry from the notes it already has. If you just want to stop, close the interview instead.", "Finish anyway", "Close the interview");
+      if (v === "alt") return cancelInterview(btn, false);
+      if (v !== "yes") return;
+    }
     const unanswered = boxes.filter((t) => t.dataset.q !== "other" && !t.value.trim()).length;
     const ok = await confirmBox("Finish the interview?",
       `Your answers are recorded in your notes${unanswered ? `, ${unanswered} unanswered question${unanswered > 1 ? "s go" : " goes"} to Open questions` : ""}, the experience is marked interviewed, and the curator updates your master CV. About 2 to 4 minutes. You review the change before it's kept.`,
@@ -1903,8 +1935,8 @@ async function skipQuestion(index, btn) {
   catch (e) { if (e.status === 409) openExp(expDetail.slug); }
 }
 
-async function cancelInterview(btn) {
-  const ok = await confirmBox("Cancel this interview?", "The interview closes without running the curator. Answers already recorded stay in your notes. Unanswered questions are dropped.", "Cancel interview");
+async function cancelInterview(btn, ask = true) {
+  const ok = !ask || await confirmBox("Cancel this interview?", "The interview closes without running the curator. Answers already recorded stay in your notes. Unanswered questions are dropped.", "Cancel interview");
   if (!ok) return;
   try { await busy(btn, "Closing…", () => api(`/api/exp/${encodeURIComponent(expDetail.slug)}/cancel`, {})); tab[current] = "overview"; await openExp(expDetail.slug); loadList(); }
   catch (e) { /* toast shown */ }
@@ -1996,8 +2028,8 @@ function viewActivity(job) {
   const who = { ask: "The interviewer", next: "The interviewer", finish: "The curator", curate: "The curator", refresh: "The curator",
                 goals: "The goals drafter" }[job.kind] || "It";
   if (job.status !== "running") {
-    if (r.interviewer) wrap.append(el("div", { class: "card" }, el("h3", { text: "The interviewer said" }), el("pre", { class: "said", text: r.interviewer })));
-    if (r.message) wrap.append(el("div", { class: "card" }, el("h3", { text: `${who} said` }), el("pre", { class: "said", text: r.message })));
+    if (r.interviewer) wrap.append(el("div", { class: "card" }, el("h3", { text: "The interviewer said" }), agentSaid(r.interviewer)));
+    if (r.message) wrap.append(el("div", { class: "card" }, el("h3", { text: `${who} said` }), agentSaid(r.message)));
   }
   if (job.status === "running") return el("div", {}, el("p", { class: "hint", text: "The live log is in the panel above (Show full log)." }));
   const log = el("div", { class: "log mono" });
@@ -2206,7 +2238,9 @@ function renderMaster({ fade = false } = {}) {
       el("div", { class: "sub" }, el("span", { text: `${inCv} entries · ${m.experiences.filter((x) => x.archived).length} archived · ${m.experiences.length} experiences` }),
         m.review ? el("span", { class: "pill draft" }, "Review waiting") : null)),
     el("div", { class: "actions" },
-      el("button", { class: "btn", disabled: running || !!m.review, title: m.review ? "Keep or Undo the waiting change first" : "Re-rank after editing goals.md", onclick: (e) => masterAction("refresh", e.currentTarget) }, "Refresh ranking"),
+      el("button", { class: "btn", disabled: running || !!m.review || !m.experiences.some((x) => x.in_master),
+        title: m.review ? "Keep or Undo the waiting change first" : !m.experiences.some((x) => x.in_master) ? "Add an experience first: there's nothing to rank yet" : "Re-rank after editing goals.md",
+        onclick: (e) => masterAction("refresh", e.currentTarget) }, "Refresh ranking"),
       el("button", { class: "btn primary", onclick: () => openNewExp() }, "New experience")));
   const tabs = [["cv", "CV"], ["tags", "Tags"], ["history", "History"], ["log", "Activity"], ["changes", "Changes", m.review ? "•" : 0]];
   const seg = el("div", { class: "segmented tabs", role: "tablist" },
@@ -2383,7 +2417,7 @@ function goalsEditor() {
       el("p", { class: "hint", text: "Keep the headings and the <!-- hints -->: the curator and extractor look for Target roles, What to lead with and What to demote." }),
       ta),
     el("div", { class: "footer-bar" },
-      el("div", { class: "footer-info" }, status, el("span", { class: "hint kbd", text: "⌘↩ review" }), el("span", { class: "hint saved", id: "draft-saved", text: "Draft saved" })),
+      el("div", { class: "footer-info" }, status, el("span", { class: "hint kbd", text: `${MOD} review` }), el("span", { class: "hint saved", id: "draft-saved", text: "Saved in this browser" })),
       el("div", { class: "row-actions" }, el("button", { class: "text-btn", onclick: cancelGoalsEdit }, "Cancel"), review)));
 }
 
@@ -2589,10 +2623,14 @@ async function start() {
     if (scope === "goals") return finishStart(openGoals());
     if (scope === "exps") return finishStart(openFirstExp());
   }
+  if (want && !apps.some((a) => a.slug === want)) toast(`There's no application called ${want}. Showing another one.`);
   const first = apps.find((a) => a.slug === want) || apps.find((a) => active[a.slug]) || apps.find((a) => a.state === "draft") || apps[0];
   if (first) openApp(first.slug);
-  else main.replaceChildren(el("div", { class: "main-inner enter" }, emptyState("No applications yet", "Paste a job description to draft your first tailored CV.",
-    el("button", { class: "btn primary", onclick: () => $("#new-btn").click() }, "New application"))));
+  else main.replaceChildren(el("div", { class: "main-inner enter" }, (exps.some((x) => x.in_master)
+    ? emptyState("No applications yet", "Paste a job description to draft your first tailored CV.",
+        el("button", { class: "btn primary", onclick: () => $("#new-btn").click() }, "New application"))
+    : emptyState("Start with your experiences", "A tailored CV is picked from your master CV, which is empty for now. Add an experience on the Experiences tab, answer a few questions about it, and come back with a job description.",
+        el("button", { class: "btn primary", onclick: () => setScope("exps") }, "Add an experience")))));
   finishStart();
 }
 
@@ -2607,7 +2645,7 @@ function finishStart(p) {
     else if (h.startsWith("exp/") && current !== `exp:${h.slice(4)}`) openExp(h.slice(4));
     else if (h && h !== current && apps.some((a) => a.slug === h)) openApp(h);
   });
-  setInterval(() => { if (!document.hidden && !offline) loadList().catch(() => {}); }, 8000);
+  finishStart.timer = setInterval(() => { if (!document.hidden && !offline) loadList().catch(() => {}); }, 8000);
   return p;
 }
 
