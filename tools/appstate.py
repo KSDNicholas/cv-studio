@@ -355,3 +355,127 @@ def archive_final(app: Path):
             shutil.move(str(f), dest)
             moved.append(dest.name)
     return moved
+
+
+# ---------- the user's own edits to an application (CV Studio code, never an agent) ----------
+
+SRC_RE = re.compile(r"\s*\(source:\s*([^)]*)\)\s*$")
+
+
+def draft_for_editing(md: str) -> dict:
+    """What the Edit draft page needs: each selected entry with its bullets split into text and citation,
+    plus the education lines and the skills line."""
+    sections = split_sections(md)
+    entries = []
+    for line in next((v for k, v in sections.items() if k.startswith("Selected experiences")), []):
+        if line.startswith("### "):
+            entries.append({"line": line, "heading": SCORE_RE.sub("", line[4:]).strip(), "section": "", "bullets": []})
+        elif entries and line.startswith("section:"):
+            entries[-1]["section"] = line[8:].strip()
+        elif entries and line.startswith("- "):
+            m = SRC_RE.search(line[2:])
+            entries[-1]["bullets"].append({"text": SRC_RE.sub("", line[2:]).strip(), "source": m.group(1).strip() if m else ""})
+    return {"entries": entries,
+            "education": [l[2:].strip() for l in sections.get("Education", []) if l.startswith("- ")],
+            "skills": " ".join(l.strip() for l in sections.get("Suggested skills line", []) if l.strip())}
+
+
+def _section_span(lines, pred):
+    start = next((i for i, l in enumerate(lines) if l.startswith("## ") and pred(l[3:].strip())), None)
+    if start is None:
+        return None
+    end = next((j for j in range(start + 1, len(lines)) if lines[j].startswith("## ")), len(lines))
+    return start, end
+
+
+def edit_draft(md: str, entries, removed, education, skills, who: str) -> str:
+    """Rewrite the selected entries (order, section, bullets), the education lines and the skills line.
+    Each bullet keeps a citation: a new bullet must bring one. Removed entries are listed under ## Dropped."""
+    lines = md.splitlines()
+    span = _section_span(lines, lambda h: h.startswith("Selected experiences"))
+    if not span:
+        raise ValueError("this draft has no Selected experiences section")
+    blocks, cur = {}, None
+    for line in lines[span[0] + 1:span[1]]:
+        if line.startswith("### "):
+            cur = line
+            blocks[cur] = []
+        elif cur:
+            blocks[cur].append(line)
+    out = [lines[span[0]], ""]
+    for e in entries:
+        if e["line"] not in blocks:
+            raise ValueError("the draft changed since you opened it. Reload first")
+        meta = [l for l in blocks[e["line"]] if l.strip() and not l.startswith("- ") and not l.startswith("section:")]
+        out += [e["line"], f"section: {_one_line(e.get('section') or '')}"] + meta
+        for k, b in enumerate(e.get("bullets") or [], 1):
+            text, source = _one_line(b.get("text") or ""), _one_line(b.get("source") or "")
+            if not text:
+                continue
+            if not re.match(r"experiences/[a-z0-9-]+/index\.md L\d", source):
+                raise ValueError(f"{SCORE_RE.sub('', e['line'][4:]).strip()}, bullet {k}: give its source, like experiences/<slug>/index.md L12")
+            out.append(f"- {text} (source: {source})")
+        out.append("")
+    for line in removed or []:
+        if line not in blocks:
+            raise ValueError("the draft changed since you opened it. Reload first")
+    new = lines[:span[0]] + out + lines[span[1]:]
+    if removed:
+        drop = [f"- {SCORE_RE.sub('', l[4:]).strip()}: removed by {who} in CV Studio" for l in removed]
+        d = _section_span(new, lambda h: h == "Dropped")
+        if d:
+            new[d[1]:d[1]] = drop + [""]
+        else:
+            q = _section_span(new, lambda h: h.startswith("Open questions")) or (len(new), len(new))
+            new[q[0]:q[0]] = ["## Dropped", ""] + drop + [""]
+    for heading, body in (("Education", [f"- {_one_line(x)}" for x in education or [] if x.strip()]),
+                          ("Suggested skills line", [_one_line(skills or "")] if (skills or "").strip() else [])):
+        sp = _section_span(new, lambda h, heading=heading: h == heading)
+        if sp:
+            new[sp[0] + 1:sp[1]] = body + [""]
+    return "\n".join(new).rstrip("\n") + "\n"
+
+
+def dismiss_question(md: str, index: int, who: str) -> str:
+    """Dismiss: tick a question without asking the extractor for anything. The draft stays as it is."""
+    qs = parse_questions(md)
+    if not 0 <= index < len(qs) or qs[index]["ticked"]:
+        raise ValueError("that question is already settled")
+    lines = md.splitlines()
+    q = qs[index]
+    lines[q["line"]] = re.sub(r"^- \[ \]", "- [x]", lines[q["line"]], count=1)
+    lines.insert(q["last"] + 1, f"  decision: dismissed by {who} in CV Studio, no change")
+    return "\n".join(lines) + ("\n" if md.endswith("\n") else "")
+
+
+def reopen(app: Path) -> list:
+    """Reopen an approved or rendered draft for editing: status back to draft, the final PDF into drafts/."""
+    ext = app / "extraction.md"
+    md = ext.read_text()
+    if not APPROVED_RE.search(md):
+        raise ValueError("only an approved draft can be reopened")
+    moved = archive_final(app)
+    ext.write_text(APPROVED_RE.sub("status: draft", md, count=1))
+    return moved
+
+
+def edit_jd(app: Path, body: str):
+    """Replace the job description text, keeping its title and Source lines."""
+    body = body.replace("\r\n", "\n").strip()
+    if not body:
+        raise ValueError("the job description can't be empty")
+    jd = app / "jd.md"
+    head = jd.read_text().split("\n\n", 2)[:2] if jd.exists() else []
+    jd.write_text("\n\n".join(head + [body]) + "\n")
+
+
+def set_aside_draft(app: Path) -> list:
+    """Re-extract: the current draft and its previews go to drafts/, so the extractor starts over from the job description."""
+    drafts, moved = app / "drafts", archive_previews(app)
+    ext = app / "extraction.md"
+    if ext.exists():
+        drafts.mkdir(exist_ok=True)
+        dest = _versioned(drafts, ext.name)
+        shutil.move(str(ext), dest)
+        moved.append(dest.name)
+    return moved

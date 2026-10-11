@@ -13,6 +13,7 @@ tools/undo/
 tools/goals-draft/
 tools/ui-jobs/
 tools/master-history/
+tools/trash/
 
 # Your CV data. Ignored so it never reaches a public fork by accident.
 # To version it, keep a private copy of this repo and delete these lines there (docs/SETUP.md).

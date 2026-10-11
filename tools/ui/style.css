@@ -672,3 +672,9 @@ textarea.editor { width: 100%; min-height: 60vh; font: 13px/1.55 ui-monospace, "
 .form-dialog fieldset { border: 0; padding: 0; margin: 0; }
 .form-dialog legend { font-size: 12px; color: var(--text-3); margin-bottom: 4px; }
 .form-dialog label.check { display: inline-flex; flex-direction: row; align-items: center; gap: 5px; margin: 0 12px 6px 0; color: var(--text); }
+.draft-entries { display: grid; gap: 12px; }
+.draft-entry .card-head { gap: 10px; flex-wrap: wrap; }
+.inline-field { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); margin: 6px 0; }
+.inline-field select { font: inherit; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
+.b-meta1 { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); }
+textarea.wide { width: 100%; font: inherit; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }

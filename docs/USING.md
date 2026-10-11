@@ -87,7 +87,9 @@ Recency is there because recent work is easier to talk about in an interview. It
 
 ![The Selected entries card: each pick with its score and breakdown](img/overview.png)
 
-If a pick looks wrong, say so in your answers ("drop the treasurer role") and the extractor will change it.
+If a pick looks wrong, say so in your answers ("drop the treasurer role") and the extractor will change it. Or change it yourself: **Edit draft** on the Selected entries card lets you reorder entries, move them between sections, remove them, and reword, reorder, remove or add bullets, plus the education and skills lines. Every bullet keeps its source line, a new one needs one, and the style rules are checked when you save. If the page runs over, the renderer drops the last bullet of the lowest-scored entry first, so put what you'd cut last.
+
+A question you don't need to act on can be **Dismissed**. It's ticked without a run of the extractor. An approved application can be **Reopened** to edit it again, and its old PDF moves to `drafts/`. At the bottom of the Overview, **Re-extract** starts over from the job description (after **Edit** on the job description, say), and **Delete application** moves the folder to `tools/trash/`.
 
 Then come the questions. These are the things the extractor would not decide on its own: a must-have skill with thin evidence, a number it found only in a document, an entry your goals say to demote, a conflict between two notes.
 

@@ -231,5 +231,77 @@ class MultiLineAnswers(unittest.TestCase):
             s.write_answers(md, {0: "   \n "})
 
 
+class DraftEdits(unittest.TestCase):
+    """Edit draft and the other application edits CV Studio's code makes (CLAUDE.md rule 2: the user may edit extraction.md)."""
+    MD = f"""# Extraction: Acme, Analyst
+
+status: draft
+
+## Selected experiences (ordered)
+
+### Analyst, Acme (May 2026 - Aug 2026)   [score 9/10]
+section: Experience
+score: tags 5, relevance 3, goals 0, recency +1
+why: SQL.
+- Built a dashboard. (source: experiences/acme/index.md L12)
+- Wrote SQL. (source: experiences/acme/index.md L14)
+
+### Club, Society (2025)   [score 5/10]
+section: Leadership & Co-Curricular Activities
+- Ran a workshop. (source: experiences/club/index.md L9)
+
+## Education
+- BSc, Uni (2024 - 2027 (Expected))
+
+## Suggested skills line
+SQL, Python
+
+{s.QUESTIONS}
+
+- [ ] Keep the club?
+"""
+
+    def test_edit_reorders_rewords_and_drops(self):
+        d = s.draft_for_editing(self.MD)
+        a, c = d["entries"]
+        a["bullets"][0]["text"] = "Built a Power BI dashboard."
+        out = s.edit_draft(self.MD, [a], [c["line"]], ["BSc, Uni (2024 - 2027 (Expected))"], "SQL, Python, Excel", "Robin")
+        self.assertIn("- Built a Power BI dashboard. (source: experiences/acme/index.md L12)", out)
+        self.assertIn("score: tags 5, relevance 3", out)                   # the extractor's lines stay
+        self.assertIn("## Dropped\n\n- Club, Society (2025): removed by Robin in CV Studio", out)
+        self.assertIn("SQL, Python, Excel", out)
+        self.assertEqual(s.parse_questions(out)[0]["text"], "Keep the club?")
+
+    def test_every_bullet_needs_a_source(self):
+        a = s.draft_for_editing(self.MD)["entries"][0]
+        a["bullets"].append({"text": "Something new.", "source": ""})
+        with self.assertRaisesRegex(ValueError, "give its source"):
+            s.edit_draft(self.MD, [a], [], [], "", "Robin")
+
+    def test_dismiss_ticks_without_an_answer(self):
+        out = s.dismiss_question(self.MD, 0, "Robin")
+        q = s.parse_questions(out)[0]
+        self.assertTrue(q["ticked"])
+        self.assertEqual(q["decisions"], ["dismissed by Robin in CV Studio, no change"])
+        self.assertEqual(s.unticked(out), 0)
+
+    def test_reopen_edit_jd_and_set_aside(self):
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            app = tmp / "2026-10-acme-analyst"
+            app.mkdir()
+            (app / "extraction.md").write_text(self.MD.replace("status: draft", "status: approved"))
+            (app / "jd.md").write_text("# Acme: Analyst\n\nSource: pasted, 2026-10-11.\n\nOld text.\n")
+            s.reopen(app)
+            self.assertIn("status: draft", (app / "extraction.md").read_text())
+            s.edit_jd(app, "New text.")
+            self.assertEqual((app / "jd.md").read_text(), "# Acme: Analyst\n\nSource: pasted, 2026-10-11.\n\nNew text.\n")
+            s.set_aside_draft(app)
+            self.assertFalse((app / "extraction.md").exists())
+            self.assertTrue((app / "drafts" / "extraction-v1.md").exists())
+        finally:
+            shutil.rmtree(tmp)
+
+
 if __name__ == "__main__":
     unittest.main()

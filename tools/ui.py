@@ -50,6 +50,7 @@ EFFORT = "high"  # extractor effort. The Claude Code default (xhigh) took 8 min 
 
 HISTORY = Path(__file__).resolve().parent / "ui-history.json"    # run durations per kind (gitignored)
 JOB_HISTORY = Path(__file__).resolve().parent / "ui-jobs"   # the last finished run per page, kept across restarts (gitignored)
+TRASH = Path(__file__).resolve().parent / "trash"   # deleted applications, kept until you empty it (gitignored)
 SETTINGS = Path(__file__).resolve().parent / "ui-settings.json"  # notification switches (gitignored)
 READERS = {"extract", "revise"}                               # read experiences/ and master-cv.md
 WRITERS = {"ask", "next", "finish", "curate", "refresh"}      # change them (line numbers the extractor cites)
@@ -785,7 +786,8 @@ def detail(app: Path):
             entry["recency"] = s.recency(entry["heading"], on)
         out["extraction"] = {"mtime": mtime(app), "raw": md, "questions": s.parse_questions(md),
                              "unticked": s.unticked(md), "pending": s.pending_answers(md),
-                             "approved": bool(s.APPROVED_RE.search(md)), "entries": entries, "jd_date": on.isoformat()}
+                             "approved": bool(s.APPROVED_RE.search(md)), "entries": entries, "jd_date": on.isoformat(),
+                             "editable": s.draft_for_editing(md)}
     job = last_job(app.name)
     out["job"] = job.view(len(job.log)) | {"next": 0} if job else None
     return out
@@ -879,6 +881,63 @@ def action(app: Path, verb: str, body):
         elif state != "approved":
             raise Refused(409, f"approve the extraction first (it is '{state}')")
         return {"job": start_job(app.name, "render", lambda j: run_render(j, app, False), label(app)).id}
+    # ----- the user's own edits: CV Studio code writes them, never an agent -----
+    ext = app / "extraction.md"
+    try:
+        if verb == "edit-draft":
+            if state != "draft":
+                raise Refused(409, "only a draft can be edited. Reopen an approved one first")
+            check_fresh(app, body)
+            new = s.edit_draft(ext.read_text(), body.get("entries") or [], body.get("removed") or [],
+                               body.get("education") or [], body.get("skills") or "", who())
+            jd = app / "jd.md"
+            problems = md_problems(new, jd.read_text() if jd.exists() else "")
+            if problems:
+                raise ValueError("the CV style rules would refuse this: " + "; ".join(problems[:3]))
+            ext.write_text(new)
+            return {"ok": True}
+        if verb == "dismiss":
+            if state != "draft":
+                raise Refused(409, "only a draft's questions can be dismissed")
+            check_fresh(app, body)
+            ext.write_text(s.dismiss_question(ext.read_text(), int(body.get("index", -1)), who()))
+            return {"ok": True}
+        if verb == "reopen":
+            if state not in ("approved", "rendered") or app.name in ACTIVE:
+                raise Refused(409, "only an approved application can be reopened, and not while a render runs")
+            moved = s.reopen(app)
+            t.update(lambda x: t.upsert_application(x, app.name, f"reopened {today()} via CV Studio", "Edit, then Approve again"))
+            return {"ok": True, "moved": moved}
+        if verb == "edit-jd":
+            if app.name in ACTIVE:
+                raise Refused(409, "wait for the running job to finish")
+            s.edit_jd(app, body.get("jd") or "")
+            return {"ok": True, "stale": state != "jd only"}
+        if verb == "reextract":
+            if state not in ("draft", "approved") or app.name in ACTIVE:
+                raise Refused(409, "re-extract works on a draft or an approved application with no job running")
+            moved = s.set_aside_draft(app)
+            try:
+                job = start_job(app.name, "extract", lambda j: run_extractor(j, app, False), label(app))
+            except Refused:
+                raise
+            return {"job": job.id, "moved": moved}
+        if verb == "delete":
+            if app.name in ACTIVE:
+                raise Refused(409, "wait for the running job to finish")
+            TRASH.mkdir(exist_ok=True)
+            dest = TRASH / f"{app.name}-{time.strftime('%Y%m%d-%H%M%S')}"
+            shutil.move(str(app), dest)
+            def drop_app_row(x):
+                for item in t.all_items(x):
+                    if item["section"] == "Applications" and item["cells"][:1] == [app.name]:
+                        x = t.delete_row(x, item["line"])
+                return x
+            t.update(lambda x: t.delete_rows_mentioning(x, app.name), drop_app_row,
+                     lambda x: t.set_last_updated(x, today(), f"CV Studio: {app.name} deleted (in tools/trash/)"))
+            return {"ok": True, "trash": f"tools/trash/{dest.name}"}
+    except ValueError as err:
+        raise Refused(400, str(err))
     raise Refused(404, f"unknown action {verb}")
 
 

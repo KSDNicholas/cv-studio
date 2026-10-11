@@ -365,6 +365,9 @@ function headerActions(d, running) {
     out.push(el("button", { class: "btn", disabled: running, onclick: (e) => runAction("preview", {}, e.currentTarget, "Rendering…", "preview") }, "Preview"));
     out.push(el("button", { class: "btn primary", disabled: running, onclick: (e) => runAction("render", {}, e.currentTarget, "Rendering…", "preview") }, "Render final CV"));
   }
+  if ((d.state === "approved" || d.state === "rendered") && !running) {
+    out.push(el("button", { class: "text-btn", onclick: (e) => reopenApp(e.currentTarget) }, "Reopen to edit"));
+  }
   if (d.state === "rendered" && d.final_pdf) {
     out.push(el("button", { class: "text-btn", disabled: running, onclick: rerender }, "Re-render"));
     out.push(el("a", { class: "btn green", href: fileUrl(d.final_pdf.name) + "&download=1", download: d.final_pdf.name }, "Download PDF"));
@@ -574,7 +577,115 @@ function viewOverview() {
       el("div", { class: "row-actions" }, el("button", { class: "btn", onclick: () => goTab("preview") }, "Review"),
         el("a", { class: "btn green", href: fileUrl(d.final_pdf.name) + "&download=1", download: d.final_pdf.name }, "Download PDF")));
   }
-  return el("div", {}, next, ext ? selectedCard(ext) : null, docCard("Job description", d.jd || "(no jd.md)", d.state === "jd only"));
+  const jdCard = docCard("Job description", d.jd || "(no jd.md)", d.state === "jd only");
+  if (!running && d.jd) jdCard.querySelector("summary").append(el("button", { type: "button", class: "text-btn",
+    onclick: (e) => { e.preventDefault(); e.stopPropagation(); editJd(); } }, "Edit"));
+  const editing = ext && draftEditing[d.slug] && d.state === "draft";
+  return el("div", {}, editing ? null : next, ext ? (editing ? draftEditor(ext) : selectedCard(ext)) : null, jdCard, running ? null : manageCard(d));
+}
+
+const draftEditing = {};   // app slug -> true while Edit draft is open
+const DRAFT_SECTIONS = ["Experience", "Projects", "Hackathons and case competitions", "Leadership & Co-Curricular Activities"];
+
+/** Edit draft: your own changes to extraction.md, written by code. Every bullet keeps its citation. */
+function draftEditor(ext) {
+  const d = detail, ed = ext.editable;
+  const list = el("div", { class: "draft-entries" });
+  const bulletRow = (b = { text: "", source: "" }) => {
+    const ta = el("textarea", { rows: "2", class: "b-text", "aria-label": "Bullet" }); ta.value = b.text;
+    const src = el("input", { type: "text", class: "b-src", placeholder: "experiences/<slug>/index.md L12", "aria-label": "Source" }); src.value = b.source;
+    const row = el("div", { class: "bullet-row" }, ta, el("label", { class: "b-meta1" }, "Source ", src),
+      el("div", { class: "row-actions" },
+        el("button", { type: "button", class: "text-btn", onclick: () => row.previousElementSibling && row.parentNode.insertBefore(row, row.previousElementSibling) }, "Up"),
+        el("button", { type: "button", class: "text-btn", onclick: () => row.nextElementSibling && row.parentNode.insertBefore(row.nextElementSibling, row) }, "Down"),
+        el("button", { type: "button", class: "text-btn danger", onclick: () => row.remove() }, "Remove")));
+    return row;
+  };
+  for (const e of ed.entries) {
+    const bullets = el("div", { class: "bullet-rows" }, ...e.bullets.map(bulletRow));
+    const sec = el("select", { class: "e-section", "aria-label": "Section" }, ...DRAFT_SECTIONS.map((x) => el("option", { value: x, text: x })));
+    sec.value = e.section;
+    const card = el("div", { class: "card draft-entry", "data-line": e.line },
+      el("div", { class: "card-head" }, el("h3", { text: e.heading }),
+        el("div", { class: "row-actions" },
+          el("button", { type: "button", class: "text-btn", onclick: () => card.previousElementSibling && list.insertBefore(card, card.previousElementSibling) }, "Up"),
+          el("button", { type: "button", class: "text-btn", onclick: () => card.nextElementSibling && list.insertBefore(card.nextElementSibling, card) }, "Down"),
+          el("button", { type: "button", class: "text-btn danger", onclick: () => { card.dataset.removed = "1"; card.hidden = true; } }, "Remove from this CV"))),
+      el("label", { class: "inline-field" }, "Section ", sec), bullets,
+      el("button", { type: "button", class: "text-btn", onclick: () => bullets.append(bulletRow()) }, "Add a bullet"));
+    list.append(card);
+  }
+  const edu = el("textarea", { rows: String(Math.max(3, ed.education.length + 1)), class: "wide", "aria-label": "Education lines" }); edu.value = ed.education.join("\n");
+  const skills = el("textarea", { rows: "2", class: "wide", "aria-label": "Skills line" }); skills.value = ed.skills;
+  const save = el("button", { class: "btn primary", onclick: async (ev) => {
+    const cards = [...list.children];
+    const body = {
+      mtime: ext.mtime,
+      entries: cards.filter((c) => !c.dataset.removed).map((c) => ({ line: c.dataset.line, section: c.querySelector(".e-section").value,
+        bullets: [...c.querySelectorAll(".bullet-row")].map((r) => ({ text: r.querySelector(".b-text").value, source: r.querySelector(".b-src").value })) })),
+      removed: cards.filter((c) => c.dataset.removed).map((c) => c.dataset.line),
+      education: edu.value.split("\n"), skills: skills.value };
+    try {
+      await busy(ev.currentTarget, "Saving…", () => api(`/api/apps/${encodeURIComponent(d.slug)}/edit-draft`, body));
+      draftEditing[d.slug] = false;
+      toast("Draft saved. The preview updates by itself.", { type: "ok" });
+      await openApp(d.slug);
+    } catch (e) { if (e.status === 409) openApp(d.slug); }
+  } }, "Save draft");
+  return el("div", {},
+    el("div", { class: "card next" }, el("h3", { text: "Edit draft" }),
+      el("p", { class: "muted", text: "Reorder, move, remove or reword anything. Every bullet keeps its source line, and a new bullet needs one. The style rules are checked when you save. If the page runs over, the renderer drops the last bullet of the lowest-scored entry first, so put what you'd cut last." })),
+    list,
+    el("div", { class: "card" }, el("h3", { text: "Education" }), el("p", { class: "hint", text: "One line each. Keep the (source: …) on lines that have one." }), edu),
+    el("div", { class: "card" }, el("h3", { text: "Skills line" }), skills),
+    el("div", { class: "footer-bar" }, el("div", { class: "footer-info" }),
+      el("div", { class: "row-actions" }, el("button", { class: "text-btn", onclick: () => { draftEditing[d.slug] = false; renderMain(); } }, "Cancel"), save)));
+}
+
+function editJd() {
+  const d = detail;
+  const body = (d.jd || "").split("\n\n").slice(2).join("\n\n");
+  formDialog("Edit job description", d.state === "jd only" ? "" : "The draft was made from the current text. After editing, Re-extract to start over from the new one.", [
+    { name: "jd", label: "Job description", type: "textarea", rows: "14", value: body, required: true },
+  ], "Save", async (v) => {
+    const r = await api(`/api/apps/${encodeURIComponent(d.slug)}/edit-jd`, v);
+    toast(r.stale ? "Saved. Re-extract (bottom of Overview) to redo the draft from it." : "Saved", { type: "ok" });
+    await openApp(d.slug);
+  });
+}
+
+/** Start over, or delete: the two things you'd otherwise do by hand in the folder. */
+function manageCard(d) {
+  const acts = [];
+  if (d.state === "draft" || d.state === "approved") acts.push(el("button", { class: "btn", onclick: async (e) => {
+    const btn = e.currentTarget;
+    const ok = await confirmBox("Re-extract from scratch?", "The current draft and its previews move to drafts/ (nothing is lost), then the extractor starts over from the job description and your master CV. A few minutes.", "Re-extract");
+    if (!ok) return;
+    try {
+      const r = await busy(btn, "Starting…", () => api(`/api/apps/${encodeURIComponent(d.slug)}/reextract`, {}));
+      store.set(`cvs-running:${d.slug}`, JSON.stringify({ id: r.job, kind: "extract" }));
+      await openApp(d.slug); startPoll(r.job, d.slug); loadList();
+    } catch (err) { /* toast shown */ }
+  } }, "Re-extract"));
+  acts.push(el("button", { class: "text-btn danger", onclick: async (e) => {
+    const btn = e.currentTarget;
+    const ok = await confirmBox(`Delete ${d.company}, ${d.role}?`, "The folder moves to tools/trash/, so you can still get it back by hand. Its tracker rows are removed.", "Delete");
+    if (!ok) return;
+    try {
+      const r = await busy(btn, "Deleting…", () => api(`/api/apps/${encodeURIComponent(d.slug)}/delete`, {}));
+      toast(`Deleted. It's in ${r.trash} if you need it back.`, { type: "ok" });
+      current = null; await loadList();
+      if (apps[0]) openApp(apps[0].slug); else main.replaceChildren(el("div", { class: "main-inner enter" }, emptyState("No applications yet", "Paste a job description to draft your first tailored CV.")));
+    } catch (err) { /* toast shown */ }
+  } }, "Delete application"));
+  return el("div", { class: "card" }, el("h3", { text: "Manage this application" }), el("div", { class: "row-actions" }, ...acts));
+}
+
+async function reopenApp(btn) {
+  const ok = await confirmBox("Reopen for editing?", "It goes back to a draft you can edit and approve again. The final PDF moves to drafts/, so nothing is lost.", "Reopen");
+  if (!ok) return;
+  try { await busy(btn, "Reopening…", () => api(`/api/apps/${encodeURIComponent(detail.slug)}/reopen`, {})); tab[detail.slug] = "overview"; await openApp(detail.slug); loadList(); }
+  catch (e) { /* toast shown */ }
 }
 
 const signed = (n) => (n > 0 ? `+${n}` : String(n));
@@ -594,8 +705,10 @@ function selectedCard(ext) {
       e.why ? el("div", { class: "muted", text: e.why }) : null,
       el("div", { class: `hint${b ? "" : " sel-nobreak"}`, text: parts }));
   });
+  const canEdit = detail.state === "draft" && !(detail.job && detail.job.status === "running");
   return el("div", { class: "card" }, el("div", { class: "card-head" }, el("h3", { text: "Selected entries" }),
-      el("span", { class: "muted", text: `${entries.length} on the CV` })),
+      el("span", { class: "muted", text: `${entries.length} on the CV` }),
+      canEdit ? el("button", { class: "text-btn", onclick: () => { draftEditing[detail.slug] = true; renderMain(); } }, "Edit draft") : null),
     el("p", { class: "hint", text: "Scored from the master CV: tags and keywords (up to 6), direct relevance (up to 3), your goals (+1 to -1) and recency (+1 to -1). Ties go to the more recent entry." }),
     ...rows);
 }
@@ -638,7 +751,9 @@ function viewQuestions() {
       trail.length || (!isChange && tag) ? el("div", { class: "trail" },
         ...trail.map(([who, txt, p]) => el("div", { class: p ? "pending" : "" }, el("b", { text: who.toUpperCase() }), el("span", {}, txt, p ? tag.cloneNode(true) : null)))) : null,
       openQ && editable ? el("textarea", { "data-q": String(q.index), "data-key": hash(q.text), rows: "1", placeholder: "Your answer, in your own words (leave blank to skip)",
-                                           "aria-label": `Answer to question ${q.index + 1}` }) : null);
+                                           "aria-label": `Answer to question ${q.index + 1}` }) : null,
+      openQ && editable && !isChange ? el("button", { class: "text-btn skip", title: "Tick it without changing the draft or running the extractor",
+        onclick: (e) => dismissQuestion(q.index, e.currentTarget) }, "Dismiss, no change needed") : null);
     card.append(node);
   }
   wrap.append(card);
@@ -659,6 +774,11 @@ function viewQuestions() {
     requestAnimationFrame(updateCounter);
   }
   return wrap;
+}
+
+async function dismissQuestion(index, btn) {
+  try { await busy(btn, "Dismissing…", () => api(`/api/apps/${encodeURIComponent(detail.slug)}/dismiss`, { index, mtime: detail.extraction.mtime })); await openApp(detail.slug); loadList(); }
+  catch (e) { if (e.status === 409) openApp(detail.slug); }
 }
 
 let savedTimer = null;
