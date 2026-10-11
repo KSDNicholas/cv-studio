@@ -34,7 +34,7 @@ import expstate as e
 import trackerfile as t
 import goalsfile as g
 import undo
-from render import md_problems, short_name
+from render import md_problems, short_name, style_problems
 
 ROOT = s.ROOT
 UI_DIR = Path(__file__).resolve().parent / "ui"
@@ -939,7 +939,8 @@ def exp_detail(exp: Path):
             "job": job_summary(f"exp:{exp.name}"),
             "review": review if review and exp.name in review["slugs"] else None, "types": e.TYPES,
             "index_mtime": index_mtime(exp), "sections": mc.sections(master_md),
-            "own_entry": bool(mc.owned_block(master_md, exp.name))}
+            "own_entry": bool(mc.owned_block(master_md, exp.name)),
+            "vocab": e.tag_vocabulary((ROOT / "CLAUDE.md").read_text())}
 
 
 def create_exp(body):
@@ -1077,6 +1078,39 @@ def exp_action(exp: Path, verb: str, body):
             idle()
             e.remove_artifact(exp, body.get("name") or "")
             return {"ok": True}
+        if verb in ("entry-move", "entry-tags", "entry-bullets"):
+            idle()
+            no_review()
+            master_md, notes = e.MASTER.read_text(), idx.read_text()
+            if verb == "entry-move":
+                new = mc.move_within(master_md, exp.name, -1 if int(body.get("step", 0)) < 0 else 1, who(), date.today())
+                what = "Moved " + ("up" if int(body.get("step", 0)) < 0 else "down")
+            elif verb == "entry-tags":
+                vocab = [x for grp in e.tag_vocabulary((ROOT / "CLAUDE.md").read_text()) for x in grp["tags"]]
+                new, what = mc.set_tags(master_md, exp.name, body.get("tags") or [], vocab, who(), date.today()), "Tags edited"
+            else:
+                items, added = [], notes
+                for k, bl in enumerate(body.get("bullets") or []):
+                    cited = [int(c) for c in bl.get("sources") or []]
+                    note = " ".join(str(bl.get("note") or "").split())
+                    if note:   # a new fact for this bullet goes into the notes first, so the bullet can cite it
+                        added = e.add_answer_note(added, "", note, who(), date.today())
+                        cited.append(len(added.rstrip("\n").splitlines()))
+                    text = " ".join(str(bl.get("text") or "").split())
+                    if text and not text.startswith("Stack:"):
+                        problems = style_problems([{"title": "", "org": "", "dates": "", "bullets": [text]}], [], "", "")
+                        if problems:
+                            raise ValueError(f"bullet {k + 1}: " + "; ".join(problems))
+                    items.append((text, cited))
+                new, what = mc.set_bullets(master_md, exp.name, items, who(), date.today()), "Bullets edited"
+                notes = added
+            undo.take(["master/master-cv.md", f"experiences/{exp.name}/index.md"],
+                      {"kind": "manual", "slugs": [exp.name], "when": today(), "label": f"{what}: {lab}"})
+            e.MASTER.write_text(new)
+            if notes != idx.read_text():
+                idx.write_text(notes)
+            undo.seal()
+            return {"review": True}
         if verb in ("archive", "unarchive"):
             idle()
             no_review()
@@ -1143,7 +1177,7 @@ def master_view():
     md = e.MASTER.read_text() if e.MASTER.exists() else ""
     return {"raw": md, "tags": e.tag_vocabulary((ROOT / "CLAUDE.md").read_text()), "review": review_summary(),
             "goals": goals_summary(),
-            "job": job_summary("master"), "experiences": e.list_experiences(master_md=md)}
+            "job": job_summary("master"), "experiences": e.list_experiences(master_md=md), "history": undo.history()}
 
 
 def master_action(verb, body):
@@ -1161,6 +1195,17 @@ def master_action(verb, body):
         return {"kept": True}
     if verb == "undo":
         return undo.undo(e.set_status, lambda md: e.front_matter(md).get("status"))
+    if verb == "restore":   # a saved version comes back as a reviewable change, like any other
+        try:
+            text = undo.history_text(body.get("name") or "")
+        except ValueError as err:
+            raise Refused(400, str(err))
+        if undo.pending():
+            raise Refused(409, "Keep or Undo the last master CV change first")
+        undo.take(["master/master-cv.md"], {"kind": "manual", "slugs": [], "when": today(), "label": f"Restored the version from {body.get('name', '')[:16].replace('T', ' ')}"})
+        e.MASTER.write_text(text)
+        undo.seal()
+        return {"review": True}
     raise Refused(404, f"unknown action {verb}")
 
 

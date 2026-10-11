@@ -55,5 +55,32 @@ class MoveEntry(unittest.TestCase):
         self.assertEqual(out[-1], "pin: order, section (Robin, 2026-10-11)")
 
 
+class EntryEdits(unittest.TestCase):
+    D = date(2026, 10, 11)
+    TWO = MD.replace("## Projects\n", "## Projects\n\n### Club Site, Personal Project (Mar 2026)\n- Built a site.\nretrieve: experiences/club-site/index.md\n")
+
+    def test_move_within_a_section(self):
+        out = mc.move_within(self.TWO, "budget-buddy", -1, "Robin", self.D)
+        proj = out.split("## Projects")[1].split("## Skills")[0]
+        self.assertLess(proj.index("Budget Buddy"), proj.index("Club Site"))
+        self.assertIn("pin: order (Robin, 2026-10-11)", proj)
+        with self.assertRaisesRegex(ValueError, "already first"):
+            mc.move_within(out, "budget-buddy", -1, "Robin", self.D)
+
+    def test_tags_come_from_the_vocabulary(self):
+        out = mc.set_tags(MD, "acme", ["sql", "python"], ["sql", "python"], "Robin", self.D)
+        self.assertIn("tags: [sql, python]", out)
+        with self.assertRaisesRegex(ValueError, "not in the tag vocabulary"):
+            mc.set_tags(MD, "acme", ["made-up"], ["sql"], "Robin", self.D)
+
+    def test_changed_bullets_need_a_source(self):
+        out = mc.set_bullets(MD, "acme", [("Built a dashboard.", []), ("Cut reporting time by 3 hours a week.", [7])], "Robin", self.D)
+        self.assertIn("- Cut reporting time by 3 hours a week.", out)
+        self.assertIn("sources: bullet 2 L7 of the notes (Robin, 2026-10-11)", out)
+        self.assertIn("pin: bullets (Robin, 2026-10-11)", out)
+        with self.assertRaisesRegex(ValueError, "pick the line"):
+            mc.set_bullets(MD, "acme", [("Built a better dashboard.", [])], "Robin", self.D)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1388,7 +1388,8 @@ function expOverview() {
       el("div", { class: "entry-preview" }, el("div", { class: "ep-title", text: m.heading }),
         el("ul", {}, ...m.bullets.filter((b) => !b.startsWith("Stack:")).map((b) => el("li", {}, inline(b)))),
         m.bullets.find((b) => b.startsWith("Stack:")) ? el("div", { class: "hint", text: m.bullets.find((b) => b.startsWith("Stack:")) }) : null),
-      el("div", { class: "chips" }, ...m.tags.map((x) => el("span", { class: "chip", text: x }))))
+      el("div", { class: "chips" }, ...m.tags.map((x) => el("span", { class: "chip", text: x }))),
+      entryControls(d))
     : el("div", { class: "card next" }, el("h3", { text: "Not in your master CV yet" }),
       el("p", { class: "muted", text: d.front.status === "stub" ? "Start the interview. When you finish, the curator writes the entry and you review it." : "Run the curator to write this entry from your notes." }));
   const tracker = d.tracker.length ? el("div", { class: "card" }, el("h3", { text: "Waiting on you" }),
@@ -1397,10 +1398,77 @@ function expOverview() {
       el("div", { class: "row-actions" },
         el("button", { class: "text-btn", onclick: () => answerRow(r.line, r.cells.filter((c) => c !== d.slug).at(-1)) }, "Answer"),
         el("button", { class: "text-btn", onclick: (e) => resolveRow(r.line, e.currentTarget) }, "Resolved"))))) : null;
-  return el("div", {}, inCv, documentsCard(d), tracker, notesCard(d));
+  return el("div", {}, m && bulletsEditing[d.slug] && d.own_entry ? bulletsCard(d) : inCv, documentsCard(d), tracker, notesCard(d));
 }
 
 const notesEditing = {};   // slug -> true while the notes editor is open
+const bulletsEditing = {}; // slug -> true while the bullet editor is open
+
+/** Your own edits to this experience's CV entry: code makes them, you Keep or Undo, and the curator keeps them (pin:). */
+function entryControls(d) {
+  const running = d.job && d.job.status === "running";
+  if (!d.own_entry || running) return null;
+  if (d.review) return el("p", { class: "hint", text: "Keep or Undo the waiting change (Changes tab) before editing this entry again." });
+  const go = (verb, body, btn, label) => entryEdit(verb, body, btn, label);
+  return el("div", { class: "row-actions entry-tools" },
+    el("button", { class: "text-btn", onclick: (e) => go("entry-move", { step: -1 }, e.currentTarget, "Moving…") }, "Move up"),
+    el("button", { class: "text-btn", onclick: (e) => go("entry-move", { step: 1 }, e.currentTarget, "Moving…") }, "Move down"),
+    el("button", { class: "text-btn", onclick: () => editTags(d) }, "Edit tags"),
+    el("button", { class: "text-btn", onclick: () => { bulletsEditing[d.slug] = true; renderExp(); } }, "Edit bullets"));
+}
+
+async function entryEdit(verb, body, btn, label) {
+  const slug = expDetail.slug;
+  const go = async () => {
+    await api(`/api/exp/${encodeURIComponent(slug)}/${verb}`, body);
+    tab[current] = "changes";
+    toast("Saved as a change to review. Keep or Undo it on the Changes tab.", { type: "ok" });
+    await loadList(); await openExp(slug);
+  };
+  if (btn) { try { await busy(btn, label, go); } catch (e) { /* toast shown */ } } else await go();
+}
+
+function editTags(d) {
+  formDialog("Edit tags", "Job descriptions are matched against these. Pick from the vocabulary in CLAUDE.md.", [
+    { name: "tags", label: "Tags", type: "checks", value: d.master_entry.tags, options: d.vocab.map((g) => [g.group, g.tags]) },
+  ], "Save tags", (v) => entryEdit("entry-tags", { tags: v.tags }));
+}
+
+/** Edit bullets: every new or changed bullet names the lines of your notes it rests on, or adds a new note line. */
+function bulletsCard(d) {
+  const notes = d.index.split("\n");
+  const old = d.master_entry.bullets;
+  const rows = el("div", { class: "bullet-rows" });
+  const addRow = (text = "") => {
+    const ta = el("textarea", { rows: "2", class: "b-text", "aria-label": "Bullet" }); ta.value = text;
+    const src = el("input", { type: "text", class: "b-src", placeholder: "e.g. 12, 15", "aria-label": "Rests on note lines" });
+    const note = el("input", { type: "text", class: "b-note", placeholder: "Optional: a new fact, like the number for a (quantify?)", "aria-label": "New note line" });
+    const row = el("div", { class: "bullet-row" }, ta,
+      el("div", { class: "b-meta" }, el("label", {}, "Rests on note lines ", src), el("label", {}, "or add to your notes ", note)),
+      el("div", { class: "row-actions" },
+        el("button", { type: "button", class: "text-btn", onclick: () => row.previousElementSibling && row.parentNode.insertBefore(row, row.previousElementSibling) }, "Up"),
+        el("button", { type: "button", class: "text-btn", onclick: () => row.nextElementSibling && row.parentNode.insertBefore(row.nextElementSibling, row) }, "Down"),
+        el("button", { type: "button", class: "text-btn danger", onclick: () => row.remove() }, "Remove")));
+    const stack = [...rows.children].find((r) => r.querySelector(".b-text").value.startsWith("Stack:"));
+    if (stack && !text) rows.insertBefore(row, stack); else rows.append(row);   // a new bullet goes above the Stack line
+  };
+  old.forEach((b) => addRow(b));
+  const save = el("button", { class: "btn primary", onclick: async (e) => {
+    const bullets = [...rows.querySelectorAll(".bullet-row")].map((r) => ({
+      text: r.querySelector(".b-text").value,
+      sources: r.querySelector(".b-src").value.split(/[^0-9]+/).filter(Boolean).map(Number),
+      note: r.querySelector(".b-note").value }));
+    try { await busy(e.currentTarget, "Saving…", async () => { await entryEdit("entry-bullets", { bullets }); bulletsEditing[d.slug] = false; }); }
+    catch (err) { /* toast shown */ }
+  } }, "Save bullets");
+  const ref = el("details", { class: "notes-ref" }, el("summary", { text: "Your notes, with line numbers" }),
+    el("ol", { class: "numbered" }, ...notes.map((l, i) => el("li", { value: String(i + 1), class: l.startsWith("- ") ? "" : "muted", text: l || " " }))));
+  return el("div", { class: "card" }, el("div", { class: "card-head" }, el("h3", { text: "Edit bullets" })),
+    el("p", { class: "hint", text: "Rewrite, reorder, remove or add bullets. A new or changed bullet must name the lines of your notes it rests on, or add the fact to your notes here. The style rules are checked on save, then you Keep or Undo the change, and the curator keeps your bullets from then on." }),
+    ref, rows,
+    el("div", { class: "row-actions" }, el("button", { type: "button", class: "text-btn", onclick: () => addRow("") }, "Add a bullet"), save,
+      el("button", { class: "text-btn", onclick: () => { bulletsEditing[d.slug] = false; renderExp(); } }, "Cancel")));
+}
 
 /** Your notes, editable. Saving an entry already in the CV marks it Update to curate, so the CV catches up. */
 function notesCard(d) {
@@ -1435,6 +1503,12 @@ function formDialog(title, intro, fields, yes, onSubmit) {
   const submit = el("button", { type: "submit", class: "btn primary" }, yes);
   const form = el("form", {}, el("h2", { text: title }), intro ? el("p", { class: "muted", text: intro }) : null,
     ...fields.map((f) => {
+      if (f.type === "checks") {   // grouped checkboxes: [[group, [values]]]
+        const box = el("div", { class: "checks" }, ...f.options.map(([g, vals]) => el("fieldset", {}, el("legend", { text: g }),
+          ...vals.map((v) => el("label", { class: "check" }, el("input", { type: "checkbox", value: v, ...(f.value.includes(v) ? { checked: "" } : {}) }), v)))));
+        inputs[f.name] = { get value() { return [...box.querySelectorAll("input:checked")].map((c) => c.value); } };
+        return el("div", { class: "field" }, el("div", { class: "hint", text: f.label }), box);
+      }
       const inp = f.type === "select" ? el("select", { name: f.name }, ...f.options.map(([v, l]) => el("option", { value: v, text: l })))
         : f.type === "textarea" ? el("textarea", { name: f.name, rows: f.rows || "3" }) : el("input", { name: f.name, type: "text", autocomplete: "off" });
       inp.value = f.value || "";
@@ -1885,6 +1959,21 @@ async function masterAction(verb, btn = null) {
   catch (e) { if (!btn && !e.offline) toast(e.message, { type: "error" }); }
 }
 
+/** Every kept change saved the version before it. Restore brings one back as a change you Keep or Undo. */
+function masterHistory(m) {
+  if (!m.history.length) return emptyState("No saved versions yet", "Each time you keep a change to your master CV, the version before it is saved here.");
+  return el("div", { class: "card" }, el("h3", { text: "Saved versions" }),
+    el("p", { class: "hint", text: "Each is your master CV just before the change named. Restore shows you the difference first, then you Keep or Undo." }),
+    ...m.history.map((h) => el("div", { class: "track-row" }, el("div", { class: "grow" }, el("div", { text: `Before: ${h.label || "a change"}` }), el("div", { class: "hint", text: h.when })),
+      el("button", { class: "text-btn", disabled: !!m.review, onclick: async (e) => {
+        const btn = e.currentTarget;
+        const ok = await confirmBox("Restore this version?", "Your master CV goes back to how it was before that change. You see the difference and Keep or Undo it.", "Restore");
+        if (!ok) return;
+        try { await busy(btn, "Restoring…", () => api("/api/master/restore", { name: h.name })); tab.master = "changes"; await loadList(); openMaster(); }
+        catch (err) { /* toast shown */ }
+      } }, "Restore"))));
+}
+
 /* ---------- to-do list (tracker.md) ---------- */
 
 let todoData = null;
@@ -1999,7 +2088,7 @@ function renderMaster({ fade = false } = {}) {
     el("div", { class: "actions" },
       el("button", { class: "btn", disabled: running || !!m.review, title: m.review ? "Keep or Undo the waiting change first" : "Re-rank after editing goals.md", onclick: (e) => masterAction("refresh", e.currentTarget) }, "Refresh ranking"),
       el("button", { class: "btn primary", onclick: () => openNewExp() }, "New experience")));
-  const tabs = [["cv", "CV"], ["tags", "Tags"], ["log", "Activity"], ["changes", "Changes", m.review ? "•" : 0]];
+  const tabs = [["cv", "CV"], ["tags", "Tags"], ["history", "History"], ["log", "Activity"], ["changes", "Changes", m.review ? "•" : 0]];
   const seg = el("div", { class: "segmented tabs", role: "tablist" },
     ...tabs.map(([k, lab, n]) => el("button", { type: "button", role: "tab", "aria-selected": String(t === k), onclick: () => { tab.master = k; renderMaster(); } },
       lab, n ? el("span", { class: "count", text: String(n) }) : null, badges.master && badges.master.has(k) ? el("span", { class: "badge-dot" }) : null)));
@@ -2009,6 +2098,7 @@ function renderMaster({ fade = false } = {}) {
       ...m.tags.map((g) => el("div", { class: "tag-group" }, el("div", { class: "hint", text: g.group }), el("div", { class: "chips" }, ...g.tags.map((x) => el("span", { class: "chip", text: x })))))),
     log: () => viewActivity(m.job),
     changes: () => viewChanges(m.review),
+    history: () => masterHistory(m),
   }[t]();
   const stale = m.goals && m.goals.needs_refresh && !m.review && !running
     ? el("div", { class: "banner warn", role: "status" }, el("div", { class: "grow", text: `Your goals changed ${m.goals.last_updated ? `on ${m.goals.last_updated}` : "recently"} and the ranking hasn't been refreshed.` }),

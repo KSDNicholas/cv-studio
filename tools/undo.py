@@ -15,6 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DIR = Path(__file__).resolve().parent / "undo"
+HISTORY = Path(__file__).resolve().parent / "master-history"   # the master CV before each kept change (gitignored)
 
 
 def _sha(path: Path):
@@ -98,10 +99,46 @@ def before_text(rel: str):
     return (DIR / f["copy"]).read_text() if f and f["existed"] else ""
 
 
-def keep():
-    if not _meta():
+def keep(root: Path = ROOT):
+    meta = _meta()
+    if not meta:
         raise RuntimeError("there is no change waiting for review")
+    _remember(meta, root)
     discard()
+
+
+def _remember(meta, root: Path = ROOT):
+    """Keep the master CV as it was before a kept change, so History can bring it back."""
+    f = meta["files"].get("master/master-cv.md")
+    if not f or not f["existed"] or _sha(DIR / f["copy"]) == _sha(root / "master/master-cv.md"):
+        return
+    HISTORY.mkdir(exist_ok=True)
+    stamp = time.strftime("%Y-%m-%dT%H-%M-%S")
+    shutil.copy2(DIR / f["copy"], HISTORY / f"{stamp}.md")
+    (HISTORY / f"{stamp}.json").write_text(json.dumps({"label": meta.get("label") or meta.get("kind", ""), "kind": meta.get("kind", "")}))
+
+
+def history():
+    """Saved versions, newest first: {name, when, label}. Each is the master CV just before that change."""
+    if not HISTORY.exists():
+        return []
+    out = []
+    for f in sorted(HISTORY.glob("*.md"), reverse=True):
+        info = {}
+        try:
+            info = json.loads(f.with_suffix(".json").read_text())
+        except (OSError, ValueError):
+            pass
+        day, clock = (f.stem.split("T") + [""])[:2]
+        out.append({"name": f.name, "when": f"{day} {clock[:5].replace('-', ':')}".strip(), "label": info.get("label", "")})
+    return out
+
+
+def history_text(name: str) -> str:
+    f = HISTORY / name
+    if f.parent != HISTORY or not f.is_file() or not name.endswith(".md"):
+        raise ValueError("no such saved version")
+    return f.read_text()
 
 
 def undo(set_status, front_status, root: Path = ROOT):

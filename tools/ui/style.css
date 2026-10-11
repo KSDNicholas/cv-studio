@@ -658,3 +658,17 @@ textarea.editor { width: 100%; min-height: 60vh; font: 13px/1.55 ui-monospace, "
 .todo-row .row-actions { justify-content: flex-start; }
 .todo-row input, .todo-row textarea { font: inherit; width: 100%; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
 .q .skip { margin-top: 4px; }
+.entry-tools { margin-top: 10px; flex-wrap: wrap; }
+.bullet-rows { display: grid; gap: 12px; margin: 12px 0; }
+.bullet-row { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; }
+.bullet-row textarea, .bullet-row input { font: inherit; width: 100%; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
+.b-meta { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; font-size: 12px; color: var(--text-2); }
+.b-meta label { display: grid; gap: 3px; }
+@media (max-width: 760px) { .b-meta { grid-template-columns: 1fr; } }
+.notes-ref { margin-top: 8px; font-size: 12.5px; }
+.notes-ref ol.numbered { max-height: 280px; overflow: auto; margin: 6px 0 0; padding-left: 44px; font-family: var(--mono, ui-monospace, Menlo, monospace); }
+.notes-ref li.muted { color: var(--text-3); }
+.form-dialog .checks { display: grid; gap: 10px; max-height: 50vh; overflow: auto; }
+.form-dialog fieldset { border: 0; padding: 0; margin: 0; }
+.form-dialog legend { font-size: 12px; color: var(--text-3); margin-bottom: 4px; }
+.form-dialog label.check { display: inline-flex; flex-direction: row; align-items: center; gap: 5px; margin: 0 12px 6px 0; color: var(--text); }

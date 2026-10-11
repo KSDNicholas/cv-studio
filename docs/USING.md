@@ -60,7 +60,15 @@ The **Master CV** tab shows every entry, grouped by section and ranked by your g
 
 ![Robin's master CV](img/master.png)
 
-The curator writes this file from your notes. The only other changes are the ones you make in CV Studio, like Archive. Code writes those, shows them to you for Keep or Undo, and marks the entry with a `pin:` line so the curator never moves it back. If a bullet is wrong, fix the notes: open the experience, click Edit notes or Update, then run the curator. That keeps the rule that every line on a CV traces to something you said.
+The curator writes this file from your notes. You can change it yourself too, from an experience's Overview, under "In your master CV":
+
+- **Move up** and **Move down** change its place in its section.
+- **Edit tags** picks its tags from the vocabulary.
+- **Edit bullets** lets you rewrite, reorder, remove or add bullets. A new or changed bullet has to name the lines of your notes it rests on, or you add the fact to your notes right there. That's also how you fill in a `(quantify?)`.
+
+Code writes each change, checks the style rules, and shows it to you for Keep or Undo. It then marks the entry with a `pin:` line, so later curator runs keep what you set. That keeps the rule that every line on a CV traces to something you said.
+
+The **History** tab keeps your master CV as it was before each change you kept. **Restore** brings one back, again as a change you Keep or Undo.
 
 ## 3. Apply for a job
 

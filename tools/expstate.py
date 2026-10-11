@@ -270,7 +270,8 @@ def add_answer_note(md: str, question: str, answer: str, who: str, today: date =
     if not answer:
         raise ValueError("type an answer first")
     head = "## Answers in CV Studio"
-    line = f"- {answer} (answering: {_one_line(question)}) ({who}, {today:%Y-%m-%d})"
+    asked = f" (answering: {_one_line(question)})" if question else ""   # no question: a fact added for a CV bullet
+    line = f"- {answer}{asked} ({who}, {today:%Y-%m-%d})"
     md = md.rstrip("\n") + "\n"
     return md + (f"{line}\n" if head in md else f"\n{head}\n\n{line}\n")
 
